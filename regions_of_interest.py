@@ -90,8 +90,19 @@ class RegionsOfInterest:
         for roi in rois:
             for i in xrange(roi.num_points):
                 specter_string = self.roi_file.readline()
-                spectrum = map(float, specter_string.split())  # Splits the string of numbers, and converts it to float
-                roi.add_point(spectrum)
+                specter_string = specter_string.split()
+                spectrum = [float(x) for x in specter_string]
+                #spectrum = map(float, specter_string)  # Splits the string of numbers, and converts it to float
+                identity = spectrum[0]
+                x = spectrum[1]
+                y = spectrum[2]
+                map_x = spectrum[3]
+                map_y = spectrum[4]
+                latitude = spectrum[5]
+                longitude = spectrum[6]
+                bands = spectrum[7:-1]
+                point = Point(identity, x, y, map_x, map_y, latitude, longitude, bands)
+                roi.add_point(point)
 
             self.rois[roi.name] = roi
             self.roi_file.readline()  # Reads the empty line between the ROIs
@@ -137,3 +148,16 @@ class ROI:
 
     def add_point(self, point):
         self.points.append(point)
+
+
+class Point():
+
+    def __init__(self, identity, x, y, map_x, map_y, latitude, longitude, bands):
+        self.identity = identity
+        self.X = x
+        self.Y = y
+        self.map_X = map_x
+        self.map_Y = map_y
+        self.latitude = latitude
+        self.longitude = longitude
+        self.bands = bands
