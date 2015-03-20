@@ -1,7 +1,6 @@
 __author__ = 'Sindre Nistad'
 
 from regions_of_interest import RegionsOfInterest
-from subprocess import call
 
 
 def run():
@@ -14,6 +13,5 @@ def run():
         roi.read_data()
         name = itm.split(".")[0]
         roi.save_to_file("".join([name, ".pkl"]))
-    call('mv *.pkl ../python\ object\ ROIs')
 
 run()

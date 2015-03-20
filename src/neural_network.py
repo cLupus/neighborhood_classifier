@@ -22,34 +22,39 @@ class ClassificationNet():
                  targets,
                  neigborhood_size=1,
                  target_background=True,
+                 targets_background_ration=None,
                  hidden_layer=-1,
                  output_layer=1,
                  split_proportion=-1,
-                 set_trainer=True):
+                 set_trainer=False):
         """
             Initializes a neural network for classification.
-        :param rois:                A RegionsOfInterest object containing the ROIs
-        :param targets:             A list of strings with the target(s)
-        :param neigborhood_size:    The size (diameter in pixels) of the neigborhood the neural network considers.
-        :param target_background:   Toggles mode: if true, then we are only interested in classifying ONE target, and
-                                    then consider all the other targets as background. If false, the net will try to
-                                    classify every target.
-        :param hidden_layer:        The number of input layers to the network. The default is to have half as many as
-                                    there is input nodes and output nodes.
-        :param output_layer:        The number of output layers. The default is 1
-        :param split_proportion:    Defines how large a proportion will be given to as training data, and
-                                    test/validation data. The proportion says what proportion will be used as test data.
-                                    The default is to not split the data.
-        :param set_trainer:         Toggles whether or not the trainer should be created immediately or not.
-                                    The default is yes.
-        :type rois:                 RegionsOfInterest
-        :type targets:              list[str]
-        :type target_background:    bool
-        :type neigborhood_size:     int
-        :type hidden_layer:         int
-        :type output_layer:         int
-        :type split_proportion:     float
-        :type set_trainer:          bool
+        :param rois:                        A RegionsOfInterest object containing the ROIs
+        :param targets:                     A list of strings with the target(s)
+        :param neigborhood_size:            The size (diameter in pixels) of the neigborhood the
+                                            neural network considers.
+        :param target_background:           Toggles mode: if true, then we are only interested in classifying ONE
+                                            target, and then consider all the other targets as background.
+                                            If false, the net will try to classify every target.
+        :param targets_background_ration:   A list of target to background ratios; how much background should there
+                                            in relation to target pixels. The default is to disable it.
+        :param hidden_layer:                The number of input layers to the network. The default is to have half
+                                            as many as there is input nodes and output nodes.
+        :param output_layer:                The number of output layers. The default is 1
+        :param split_proportion:            Defines how large a proportion will be given to as training data, and
+                                            test/validation data. The proportion says what proportion will be used as test data.
+                                            The default is to not split the data.
+        :param set_trainer:                 Toggles whether or not the trainer should be created immediately or not.
+                                            The default is yes.
+        :type rois:                         RegionsOfInterest
+        :type targets:                      list[str]
+        :type target_background:            bool
+        :type targets_background_ration:    list of [float]
+        :type neigborhood_size:             int
+        :type hidden_layer:                 int
+        :type output_layer:                 int
+        :type split_proportion:             float
+        :type set_trainer:                  bool
         :return:
         """
         if neigborhood_size % 2 == 0:
@@ -66,7 +71,9 @@ class ClassificationNet():
         """ :type : int"""
         self.neural_net = build_net(input_layers, hidden_layer, output_layer)
         """ :type : FeedForwardNetwork """
-        self.data_set = load_dataset(rois, targets, neigborhood_size, have_background=target_background)
+        self.data_set = load_dataset(rois, targets, neigborhood_size,
+                                     targets_background_ratio=targets_background_ration,
+                                     have_background=target_background)
         """ :type : ClassificationDataSet """
         self.trainer = None
         """ :type : BackpropTrainer """

@@ -59,7 +59,9 @@ class RegionsOfInterest:
         self.meta = roi.meta
         self.img_dim = roi.img_dim
         self.band_info = roi.band_info
+        self.num_bands = roi.num_bands
         self.use_aggregate = roi.use_aggregate
+        self.is_normalized = roi.is_normalized
 
     def set_aggregate(self, val):
         """
@@ -88,6 +90,12 @@ class RegionsOfInterest:
             if send_residuals:
                 return datafile.readlines()
             datafile.close()
+
+    def read_normalizing_data(self, path):
+        data_file = open(path)
+        data = data_file.readlines()
+
+        pass
 
     def _read_meta_data(self, datafile):
         """
@@ -248,6 +256,22 @@ class RegionsOfInterest:
 
     def __len__(self):
         return len(self.rois)
+
+
+def _read(data_file, delimiter=None):
+    """
+        Helper method for reading data from file, and cleaning it up.
+    :param data_file:   The file from which we which to read.
+    :param delimiter:   The delimiter for which to split the string. The default is to not split the string.
+    :type data_file:    file
+    :type delimiter:    str
+    :return:            A cleaned up string.
+    :rtype:             str | list of [str]
+    """
+    data = data_file.readline()
+    if delimiter is not None:
+        return [d.strip() for d in data.split(delimiter)]
+    return data.strip()
 
 
 def _extract_name(name_string):
