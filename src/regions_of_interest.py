@@ -6,31 +6,51 @@ from cPickle import dump, load, HIGHEST_PROTOCOL
 
 class RegionsOfInterest:
 
-    def __init__(self, path):
+    def __init__(self, path, read_data=True, use_aggregate=True, is_normalized=False):
         """
-        :type path: str
+            Creates a RegionsOfInterest object, which is a collection of region on interest, each having a
+            number of points in it. The default is to read the data at creation, and to use the aggregate
+            name of the regions, e.g. 'rock' instead of 'rock_23'.
+        :param path:            The path to either the ROI text file, or an already pickled RegionsOfInterest object.
+        :param read_data:       Decides whether or not the data is to be read when the new RegionsOfInterest object
+                                is created. The default is to read at creation.
+        :param use_aggregate:   Decides whether or not you can refer to a region by its general name, e.g. 'rock', or
+                                if you have to specify the entire name of the region e.g. 'rock_r43'. The default is
+                                to use the aggregate.
+        :param is_normalized:   Specify whether or not the input data is normalized or not. The default is not.
+        :type path:             str
+        :type read_data:        bool
+        :type use_aggregate:    bool
+        :type is_normalized:    bool
         """
         self.path = path
+        """ :type : str """
         self.rois = {}
+        """ :type : dict of [str, dict of [str, ROI]] """
         self.number_of_rois = 0
+        """ :type : int """
         self.meta = ""
+        """ :type : str """
         self.img_dim = []
+        """ :type : list[int] """
         self.band_info = ""
+        """ :type : list[str] """
         self.num_bands = 0
-        self.use_aggregate = False
-        self.is_normalized = False
+        """ :type : int"""
+        self.use_aggregate = use_aggregate
+        """ :type : bool """
+        self.is_normalized = is_normalized
+        """ :type : bool """
 
-        # :type path: str
-        # :type rois: dict of [dict of [ROI]]
-        # :type number_of_rois: int
-        # :type meta: str
-        # :type img_dim: list[int]
-        # :type band_info: list[str]
-        # :type num_bands: int
-        # :type use_aggregate: bool
-        # :type is_normalized: bool
+        if read_data:
+            self.read_data()
 
     def load_roi_object(self, path):
+        """
+            Loads a pickled rois object into this one.
+        :param path:    The path to the file you want to load.
+        :return:        None
+        """
         roi = load(open(path, 'rb'))
         assert isinstance(roi, RegionsOfInterest)
         self.path = roi.path
@@ -43,11 +63,12 @@ class RegionsOfInterest:
 
     def set_aggregate(self, val):
         """
-
+            Sets the 'use_aggregate' filed to True, or False
         :param val:
         :type val: bool
-        :return:
+        :return: None
         """
+        assert isinstance(val, bool)
         self.use_aggregate = val
 
     def read_data(self, send_residuals=False):
@@ -57,7 +78,7 @@ class RegionsOfInterest:
         :type send_residuals: bool
         :return:
         """
-        # The inputfile is a pickle file, and we want to load the file instead of reading data
+        # The input file is a pickle file, and we want to load the file instead of reading data
         if self.path.split(".")[-1] == 'pkl':
             self.load_roi_object(self.path)
         else:
@@ -88,8 +109,7 @@ class RegionsOfInterest:
         # Reads the third line of the file "; File Dimension: ?? x ??"
         third_line = datafile.readline()
         third_line = third_line.split()
-        self.img_dim = [ int(third_line[-3]), int(third_line[-1]) ]
-
+        self.img_dim = [int(third_line[-3]), int(third_line[-1])]
 
         # Reads an empty line
         datafile.readline()
@@ -122,7 +142,6 @@ class RegionsOfInterest:
                 # Extracts the different fields, including 'map X', and 'map Y', but not the beginning ';'
                 meta_string = datafile.readline()
                 self.band_info = [meta.strip() for meta in meta_string.split("  ") if meta.strip() and meta != ';']
-
             else:
                 datafile.readline()  # Reads an empty line
         return rois
@@ -143,9 +162,9 @@ class RegionsOfInterest:
                 specter_string = line
                 specter_string = specter_string.split()
                 spectrum = [float(x) for x in specter_string]
-                identity = spectrum[0]
-                x = spectrum[1]
-                y = spectrum[2]
+                identity = int(spectrum[0])
+                x = int(spectrum[1])
+                y = int(spectrum[2])
                 map_x = spectrum[3]
                 map_y = spectrum[4]
                 latitude = spectrum[5]
@@ -159,6 +178,7 @@ class RegionsOfInterest:
             else:
                 self.rois[roi.name] = {}
                 self.rois[roi.name][roi.sub_name] = roi
+        self.num_bands = len(bands)
 
     def save_to_file(self, filename):
         with open(filename, 'wb') as output:
@@ -205,6 +225,13 @@ class RegionsOfInterest:
             for point in roi.points:
                 for i in xrange(self.num_bands):
                     point.bands[i] = point.bands[i] * div_param[i] + sub_param[i]
+
+    def get_all(self):
+        roi_list = []
+        for key in self.rois.keys():
+            for sub_key in self.rois[key]:
+                roi_list.append(self.rois[key][sub_key])
+        return roi_list
 
     def __getitem__(self, item):
         if self.use_aggregate:
@@ -287,18 +314,23 @@ class ROI:
     def add_point(self, point):
         self.points.append(point)
 
-    def get_neighbor(self, point, num_neighbors):
+    def get_neighbors(self, point, num_neighbors, use_list=False):
         """
             A method that gets the n neighbors of a point (and the point itself) in a matrix
-        :param point: The ROI Point of interest
-        :param num_neighbors: The diameter of the neighborhood
+        :param point:           The ROI Point of interest
+        :param num_neighbors:   The diameter of the neighborhood
+        :param use_list:        Toggles whether or not the function is to return a list instead of a matrix
 
         :type point: Point
         :type num_neighbors: int
-        :rtype: list[list[Point]]
+        :rtype: list[list[Point]] or list[Point]
         :return: Matrix of Points corresponding to the neighborhood. Some of the points ma
         """
-        points = [[None for _ in xrange(num_neighbors)] for _ in xrange(num_neighbors)]
+        if not use_list:
+            points = [[None for _ in xrange(num_neighbors)] for _ in xrange(num_neighbors)]
+        else:
+            points = [None for _ in xrange(num_neighbors ** 2)]
+
         x = point.X
         y = point.Y
         max_x = x + int(num_neighbors/2)
@@ -308,7 +340,10 @@ class ROI:
         for p in self.points:
             if min_x <= p.X <= max_x and min_y <= p.Y <= max_y:
                 index_x, index_y = get_index(max_x, p.X, max_y, p.Y, num_neighbors)
-                points[index_y][index_x] = p
+                if not use_list:
+                    points[index_y][index_x] = p
+                else:
+                    points[index_y * num_neighbors + index_x] = p
         return points
 
     def __len__(self):
@@ -316,7 +351,7 @@ class ROI:
 
 
 def get_index(max_x, x, max_y, y, num_neighbors):
-    return num_neighbors - (max_x - x), num_neighbors - (max_y - y)
+    return num_neighbors - (max_x - x) - 1, num_neighbors - (max_y - y) - 1
 
 
 class Point():
