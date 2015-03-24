@@ -1,7 +1,10 @@
+# -*- coding: utf-8 -*-
 __author__ = 'Sindre Nistad'
 
 from re import split as regex_split
 from cPickle import dump, load, HIGHEST_PROTOCOL
+
+from common import get_indices, split_numbers
 
 
 class RegionsOfInterest:
@@ -41,6 +44,14 @@ class RegionsOfInterest:
         """ :type : bool """
         self.is_normalized = is_normalized
         """ :type : bool """
+        self.maxs = []
+        """ :type : list[float] """
+        self.mins = []
+        """ :type : list[float] """
+        self.means = []
+        """ :type : list[float] """
+        self.std_devs = []
+        """ :type : list[float] """
 
         if read_data:
             self.read_data()
@@ -80,6 +91,7 @@ class RegionsOfInterest:
         :type send_residuals: bool
         :return:
         """
+        # TODO: Read data from different sources, and merge the data.
         # The input file is a pickle file, and we want to load the file instead of reading data
         if self.path.split(".")[-1] == 'pkl':
             self.load_roi_object(self.path)
@@ -92,10 +104,33 @@ class RegionsOfInterest:
             datafile.close()
 
     def read_normalizing_data(self, path):
-        data_file = open(path)
-        data = data_file.readlines()
+        """
+            Reads a file with normalizing data for each band.
+            The file is of the form:
+            Maximum 'numbers'
+            Minimum 'numbers'
+            Means   'numbers'
+            Std_dev 'numbers'
+            Where 'numbers' is a list of numbers.
+        :param path:    The path to the file which will be read
+        :type path:     str
+        :return:
+        """
+        data_file = open(path, 'r')
+        maxs = _read(data_file, '\t')
+        mins = _read(data_file, '\t')
+        means = _read(data_file, '\t')
+        std_dev = _read(data_file, '\t')
 
-        pass
+        # Removes the names
+        maxs.pop(0)
+        mins.pop(0)
+        means.pop(0)
+        std_dev.pop(0)
+        self.maxs = split_numbers(maxs)
+        self.mins = split_numbers(mins)
+        self.means = split_numbers(means)
+        self.std_devs = split_numbers(std_dev)
 
     def _read_meta_data(self, datafile):
         """
@@ -107,40 +142,35 @@ class RegionsOfInterest:
         """
         rois = []  # a list for all the rois, so that the order is remembered.
 
-        self.meta = datafile.readline()  # We don't really need the information on the first line
+        self.meta = _read(datafile, '')  # We don't really need the information on the first line
 
         # Reads the second line of the file "; Number of ROIs: ?". We are interested in ?
-        second_line = datafile.readline()
-        second_line = second_line.split()
+        second_line = _read(datafile, '')
         self.number_of_rois = int(second_line[-1])
 
         # Reads the third line of the file "; File Dimension: ?? x ??"
-        third_line = datafile.readline()
-        third_line = third_line.split()
+        third_line = _read(datafile, '')
         self.img_dim = [int(third_line[-3]), int(third_line[-1])]
 
         # Reads an empty line
-        datafile.readline()
+        _read(datafile)
 
         # Read the ROIs
         for i in xrange(self.number_of_rois):
             # Read the name of te ROI
-            name_string = datafile.readline()
+            name_string = _read(datafile)
             roi_name, roi_sub_name = _extract_name(name_string)
 
-
             # Read the RGB value of the region (in the form "{r, g, b}")
-            roi_rgb_string = datafile.readline()
-            roi_rgb_string = roi_rgb_string.split()  # Results in ['{r,', 'g,', 'b}']
+            roi_rgb_string = _read(datafile, '')  # Results in ['{r,', 'g,', 'b}']
             red = roi_rgb_string[-3]
             green = roi_rgb_string[-2]
             blue = roi_rgb_string[-1]
             colors = [red, green, blue]
-            roi_rgb = _split_numbers(colors)
+            roi_rgb = split_numbers(colors)
 
             # Reads the number of points there are in that region
-            roi_points_string = datafile.readline()
-            roi_points_string = roi_points_string.split()
+            roi_points_string = _read(datafile, '')
             roi_points = int(roi_points_string[-1])
 
             rois.append(ROI(roi_name, roi_sub_name, roi_rgb, roi_points))
@@ -151,7 +181,7 @@ class RegionsOfInterest:
                 meta_string = datafile.readline()
                 self.band_info = [meta.strip() for meta in meta_string.split("  ") if meta.strip() and meta != ';']
             else:
-                datafile.readline()  # Reads an empty line
+                _read(datafile)  # Reads an empty line
         return rois
 
     def _read_spectral_data(self, rois, datafile):
@@ -269,19 +299,23 @@ def _read(data_file, delimiter=None):
     :rtype:             str | list of [str]
     """
     data = data_file.readline()
-    if delimiter is not None:
+    if delimiter is not (None or ''):
         return [d.strip() for d in data.split(delimiter)]
-    return data.strip()
+    elif delimiter is '':
+        return [d.strip() for d in data.split()]
+    else:
+        return data.strip()
 
 
 def _extract_name(name_string):
     """
         A helper method to extract the name of the ROI, and separate it into main name, and part name
     :param name_string: The full string of the line with the name
-    :type name_string: str
+    :type name_string: str | list of [str]
     :return: the first name of the region, and the sub name of the region
     """
-    name_string = name_string.split()
+    if isinstance(name_string, str):
+        name_string = name_string.split()
     full_name = name_string[-1]
     full_name = full_name.split('_')
     if len(full_name) > 1:  # e.i. the name is in the form name_region
@@ -292,21 +326,6 @@ def _extract_name(name_string):
         roi_name = full_name[0]
         sub_name = full_name[1]
     return roi_name, sub_name
-
-
-def _split_numbers(numbers):
-    """
-        A subroutine to extract the numbers from the list of strings
-    :param numbers:
-    :type numbers: list[string]
-    :return :
-    """
-
-    res = []
-    for elm in numbers:
-        res.append(int(filter(str.isdigit, elm)))
-
-    return res
 
 
 class ROI:
@@ -363,7 +382,7 @@ class ROI:
         min_y = y - int(num_neighbors/2)
         for p in self.points:
             if min_x <= p.X <= max_x and min_y <= p.Y <= max_y:
-                index_x, index_y = get_index(max_x, p.X, max_y, p.Y, num_neighbors)
+                index_x, index_y = get_indices(max_x, p.X, max_y, p.Y, num_neighbors)
                 if not use_list:
                     points[index_y][index_x] = p
                 else:
@@ -372,10 +391,6 @@ class ROI:
 
     def __len__(self):
         return len(self.points)
-
-
-def get_index(max_x, x, max_y, y, num_neighbors):
-    return num_neighbors - (max_x - x) - 1, num_neighbors - (max_y - y) - 1
 
 
 class Point():

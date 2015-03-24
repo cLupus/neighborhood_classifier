@@ -1,15 +1,19 @@
+# -*- coding: utf-8 -*-
 __author__ = 'Sindre Nistad'
 
 from warnings import warn
+from cPickle import dump, load, HIGHEST_PROTOCOL
+from random import random
+
 from pybrain.datasets import ClassificationDataSet
 from pybrain.tools.shortcuts import buildNetwork
-from pybrain.structure.modules import SoftmaxLayer
+from pybrain.structure.modules import SoftmaxLayer, TanhLayer
 from pybrain.structure import FeedForwardNetwork
 from pybrain.supervised.trainers import BackpropTrainer
 from pybrain.tools.xml import NetworkReader, NetworkWriter
+
 from regions_of_interest import RegionsOfInterest, ROI
-from cPickle import dump, load, HIGHEST_PROTOCOL
-from random import random
+from common import get_index
 
 
 class ClassificationNet():
@@ -42,8 +46,8 @@ class ClassificationNet():
                                             as many as there is input nodes and output nodes.
         :param output_layer:                The number of output layers. The default is 1
         :param split_proportion:            Defines how large a proportion will be given to as training data, and
-                                            test/validation data. The proportion says what proportion will be used as test data.
-                                            The default is to not split the data.
+                                            test/validation data. The proportion says what proportion will be used
+                                            as test data. The default is to not split the data.
         :param set_trainer:                 Toggles whether or not the trainer should be created immediately or not.
                                             The default is yes.
         :type rois:                         RegionsOfInterest
@@ -81,6 +85,10 @@ class ClassificationNet():
         """ :type : ClassificationDataSet """
         self.training_data = None
         """ :type : ClassificationDataSet """
+        self.is_normalized = rois.is_normalized
+        """ :type : bool """
+        self.num_bands = rois.num_bands
+        """ :type : int """
         if 0 <= split_proportion < 1:
             self.split_data(split_proportion)
         if set_trainer:
@@ -231,6 +239,8 @@ class ClassificationNet():
             self.neigborhood_size = net.neigborhood_size
             self.neural_net = net.neigborhood_size
             self.data_set = net.data_set
+            self.is_normalized = net.is_normalized
+            self.num_bands = net.num_bands
         elif ending is ('xml' or 'nn') or (ending is 'net' and sub_ending is 'neural'):
             net = NetworkReader.readFrom(path)
             assert isinstance(net, FeedForwardNetwork)
@@ -247,6 +257,63 @@ class ClassificationNet():
                 assert isinstance(validation_data, ClassificationNet)
                 self.validation_data = validation_data
 
+    def apply_to_image(self, img, normalized_img=False):
+        """
+            A method to apply the neural network classifier to an entire image.
+        :param img:             Image to be classified.
+        :param normalized_img:  A flag to indicate that the image has been normalized. The default is to
+                                assume that the image has not been normalized.
+        :type img:              list of [list of [list of [float | int]]]
+        :type normalized_img:   bool
+        :return:                A classified image of the same size, as well as a list of targets corresponding to
+                                the values of the classification.
+        :rtype                  list of [list of [int]], list of [str]
+        """
+        if not self.is_normalized or not normalized_img:
+            warn("The image, and the neural network should be normalized for portability. Continuing.")
+        cols = len(img)
+        rows = len(img[0])
+        bands = len(img[0][0])
+        if bands != self.num_bands:
+            raise Exception("The number of bands in the image does not match the number of bands in the neural net",
+                            (bands, self.num_bands))
+        classified_img = [[0 for _ in xrange(rows)] for _ in xrange(cols)]  # Creates an empty image for classification.
+        buffer_size = int(self.neigborhood_size/2)  # To avoid out of range errors.
+        for row in xrange(buffer_size, rows - buffer_size):
+            for col in xrange(buffer_size, cols - buffer_size):
+                neigborhood = get_neigborhood(img, row, col, self.neigborhood_size)
+                classified_img[col][row] = self.neural_net.activate()
+
+
+def get_neigborhood(img, row, col, neigborhood_size, concatenated=True):
+    """
+        A method to get all the bands in the neigborhood of a pixel, and concatenate it into a single list of numbers
+    :param img:                 The image from which the neigborhood is to be extracted.
+    :param row:                 The row of the pixel we are interested in.
+    :param col:                 The column of the pixel we are interested in.
+    :param neigborhood_size:    The size of the neigborhood of the pixel.
+    :param concatenated:        Toggles whether or not we return a single list, or a list per pixel in the neigborhood.
+                                The default is to return a single list.
+    :type img:                  list of [list of [list of [float | int]]]
+    :type row:                  int
+    :type col:                  int
+    :type neigborhood_size:     int
+    :type concatenated:         bool
+    :return:                    If the concatenated option is set to True,  we return a single list of numbers.
+                                If the concatenated option is set to False, we return a list for each pixel.
+    """
+    neigborhood = [0 for _ in xrange(neigborhood_size ** 2)]
+    min_x = row - int(neigborhood_size / 2)
+    min_y = col - int(neigborhood_size / 2)
+    cols = len(img)
+    rows = len(img[0])
+    for i in xrange(neigborhood_size):
+        for j in xrange(neigborhood_size):
+            index = get_index(rows, i, cols, j, neigborhood_size)
+            bands = img[col - min_y + j][row - min_x + i]
+            neigborhood[index] = bands
+    return neigborhood
+
 
 def build_net(indim, hiddendim, outdim):
     """
@@ -260,7 +327,7 @@ def build_net(indim, hiddendim, outdim):
     :return:            A neural network with random weights.
     :rtype:             FeedForwardNetwork
     """
-    return buildNetwork(indim, hiddendim, outdim, outclass=SoftmaxLayer)
+    return buildNetwork(indim, hiddendim, outdim, outclass=SoftmaxLayer, hiddenclass=TanhLayer)
 
 
 def load_dataset(roi_obj, targets, neigborhood_size, targets_background_ratio=None, have_background=True):
@@ -284,12 +351,12 @@ def load_dataset(roi_obj, targets, neigborhood_size, targets_background_ratio=No
                                         'target' and 'background'.
     :rtype:                             ClassificationDataSet
     """
-    num_bands = len(roi_obj[targets[0]].points[0].bands)
 
     if have_background:
         targets.append('background')
 
-    data_set = ClassificationDataSet(neigborhood_size ** 2 * num_bands,
+    data_set = ClassificationDataSet(neigborhood_size ** 2 * roi_obj.num_bands,
+                                     1,
                                      nb_classes=len(targets),
                                      class_labels=targets)
     roi_list = roi_obj.get_all()

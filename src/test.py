@@ -10,6 +10,7 @@ def run():
 
 
     path = "../pckld_ROIs/master_r19_7_5_emissivity_sub.pkl"
+    #path_to_norm = '../ASCII'
     #path = '../ASCII roi/master_r19_7_5_emissivity_sub.txt'
     #path = '/Volumes/Kingston/Geog214a_data/python object ROIs/sb_r22_sub_sub_corrected_colored.pkl'
     #path = '../pckld_ROIs/sb_r19_sub_sub_corrected.pkl'
@@ -18,9 +19,9 @@ def run():
     #roi.read_data()
     roi.set_aggregate(True)
     net = ClassificationNet(roi, ['soil'], neigborhood_size=3)
-    #net.save('../soil_net.pkl')
-    #net.set_trainer(learning_rate=0.07, verbose=True, momentum=0.1)
-    net.set_trainer(verbose=True)
+    net.neural_net.randomize()
+    net.neural_net.convertToFastNetwork()
+    net.set_trainer(learning_rate=0.1, verbose=True, momentum=0.1, weight_decay=0.01)
     net.train_network(max_epochs=300, verbose=True)
     net.save('../rock.nn')
     print(net)
