@@ -16,6 +16,7 @@ from pybrain.tools.xml import NetworkReader, NetworkWriter
 
 from regions_of_interest import RegionsOfInterest
 from data_moving import load_data_set_from_regions_of_interest as load_data
+from data_moving import get_histogram
 
 
 class ClassificationNet():
@@ -81,6 +82,8 @@ class ClassificationNet():
                                   targets_background_ratios=targets_background_ration,
                                   have_background=target_background)
         """ :type : ClassificationDataSet """
+        self.histogram = get_histogram(rois.get_all(), targets, count_points=True)
+        """ :type: dict of [str, int] """
         self.trainer = None
         """ :type : BackpropTrainer """
         self.validation_data = None

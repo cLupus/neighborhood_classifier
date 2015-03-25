@@ -3,11 +3,18 @@
 """
     A file for handling all the loading, and moving of data
 """
+from __future__ import division
+
 __author__ = 'Sindre Nistad'
 
 from random import random
 
+from warnings import warn
+
 from pybrain.datasets import ClassificationDataSet
+
+from regions_of_interest import RegionsOfInterest
+from common import get_histogram
 
 """
 Loads data
@@ -53,7 +60,8 @@ def load_data_set_from_regions_of_interest(roi_obj, targets, neigborhood_size,
 
 def _load_limited_data(roi_obj, data_set, targets, neigborhood_size, targets_background_ratio):
     """
-        A helper method for load_dataset to load the data when considering a sub-selection.
+        A helper method for load_dataset to load the data when considering a sub-selection. If a ratio is negative,
+        it will be interpreted as zero probability.
     :param roi_obj:                     The ROI object
     :param targets:                     The list of targets (may contain only one + background)
     :param neigborhood_size:            The diameter of the neigborhood
@@ -69,10 +77,31 @@ def _load_limited_data(roi_obj, data_set, targets, neigborhood_size, targets_bac
                                         'target' and 'background'.
     :rtype:                             ClassificationDataSet
     """
-    assert len(targets) == len(targets_background_ratio)
-    targets_to_background = _convert_to_dict(targets, targets_background_ratio)
-    desiered_size = _find_desired_size(roi_obj, targets_to_background)
-    pass
+    assert len(targets) == len(targets_background_ratio)  # Just in case...
+
+    if not isinstance(targets_background_ratio, dict):
+        # The input is lists, but we want
+        targets_to_background = _convert_to_dict(targets, targets_background_ratio)
+    else:
+        targets_to_background = targets_background_ratio
+
+    # Determine the distribution of the data set.
+    orig_histogram = get_histogram(roi_obj.get_all(), targets)
+    feasible_sizes = _find_feasible_sizes(roi_obj, targets_to_background)
+
+    # Determining the appropriate probabilities for selection.
+    background_probability = feasible_sizes['background'] / orig_histogram['background']
+    probabilities = {'background': background_probability}
+    for target in targets:
+        if target.lower() != 'background':  # For simplicity
+            prob = background_probability * targets_to_background[target]
+            if prob > 1:
+                probabilities[target] = 1
+            elif prob > 0:
+                probabilities[target] = prob
+            else:
+                probabilities[target] = 0
+    return _add_samples_to_data_set(roi_obj.get_all(), targets, data_set, neigborhood_size, probabilities)
 
 
 def _load_regular_data(roi_obj, data_set, targets, neigborhood_size):
@@ -118,7 +147,7 @@ def _add_samples_to_data_set(roi_list, targets, data_set, neigborhood_size, prob
     :type data_set:             ClassificationDataSet
     :type neigborhood_size:     int
     :type probabilities:        list[float] | dict of [str, float]
-    :rtype:                     dict of [str, int] | ClassificationDataSet
+    :rtype:                     ClassificationDataSet
     """
     target_dict = {}  # This because ClassificationDataSet require the number of a target, as opposed to the name.
     probability_dict = {}  # For convenience.
@@ -131,6 +160,8 @@ def _add_samples_to_data_set(roi_list, targets, data_set, neigborhood_size, prob
         target_dict[target] = i
         if probabilities is None:
             probability_dict[target] = 1
+        elif isinstance(probabilities, dict):
+            probability_dict = probabilities
         else:
             prob = probabilities[i]
             probability_dict[target] = prob
@@ -196,53 +227,35 @@ def _convert_to_dict(strings, objects):
     return res
 
 
-def _histogram(roi_list, targets,  count_points=True):
-    """
-        A helper method to count the distribution of the targets.
-    :param roi_list:            A list of region of interest objects.
-    :param targets:             A list of targets, including the 'background' target.
-    :param count_points:        Toggles whether or not to count each point, or each ROI as a unit of the count mode.
-    :return:                    If count is set to False, the function returns the data set.
-                                If count is set to True, the function returns a dictionary of targets (including
-                                'background') that has the frequency of each target.
 
-    :type roi_list:             list[ROI]
-    :type targets:              list[str]
-    :type count_points:         bool
-    :rtype:                     dict of [str, int] | ClassificationDataSet
-    """
-    count_data = {}
-
-    for roi in roi_list:
-        if roi.name is 'background' or roi.name not in targets:
-            if count_points:
-                count_data['background'] += roi.num_points
-            else:
-                count_data['background'] += 1
-        else:  # The ROI is a target
-            if count_points:
-                count_data[roi.name] += roi.num_points
-            else:
-                count_data['background'] += 1
-    return count_data
-
-
-def _find_desired_size(roi_obj, targets_background_ratio):
+def _find_feasible_sizes(roi_obj, targets_background_ratio):
     """
         A helper method to determine the expected sizes of the different targets.
     :param roi_obj:                     A RegionsOfInterest object, so that all the the distribution of
                                         points can be determined.
     :param targets_background_ratio:    The desired ratios of number of points for each target relative to the
                                         points of background pixels.
-    :return:                            Returns a list of integers describing the number points we would like to
-                                        have of each target.
+    :return:                            Returns a dictionary of integers describing the number points we would
+                                        like to have of each target.
 
     :type roi_obj:                      RegionsOfInterest
     :type targets_background_ratio:     dict of [str, float]
+    :rtype:                             dict of [str, int]
     """
     roi_list = roi_obj.get_all()
-    histogram = _histogram(roi_list, targets_background_ratio, count_points=True)
-    num_backgrounds = []
-    for key in histogram.keys():
-        background_pixels = histogram[key] / targets_background_ratio
-    pass
+    histogram = get_histogram(roi_list, targets_background_ratio, count_points=True)
+    num_pixels = {}
+    keys = histogram.keys()
+    background_pixels = []
+    for key in keys:
+        background_pixels.append(int(histogram[key] / targets_background_ratio[key]))
+    target_background_pixels = min(background_pixels)
+    for key in keys:
+        num_pixels[key] = int(targets_background_ratio[key] * target_background_pixels)
+    for key in keys:
+        if num_pixels[key] / num_pixels['background'] != targets_background_ratio[key]:
+            warn("Warning:\nThe given targets to background ratios does not seem to be feasible, or possible, "
+                 "so the effective ratios have been changed to some that work, and are close to the given ratios: "
+                 "The minimum possible number of background pixels, and the given ratios. \nContinuing.")
+            break
+    return num_pixels

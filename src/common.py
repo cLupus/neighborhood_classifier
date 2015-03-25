@@ -55,3 +55,37 @@ def split_numbers(numbers):
         res.append(int(filter(str.isdigit, elm)))
     return res
 
+
+def get_histogram(roi_list, targets,  count_points=True):
+    """
+        A helper method to count the distribution of the targets.
+    :param roi_list:            A list of region of interest objects.
+    :param targets:             A list of targets, including the 'background' target.
+    :param count_points:        Toggles whether or not to count each point, or each ROI as a unit of the count mode.
+    :return:                    If count is set to False, the function returns the data set.
+                                If count is set to True, the function returns a dictionary of targets (including
+                                'background') that has the frequency of each target.
+
+    :type roi_list:             list[ROI]
+    :type targets:              list[str]
+    :type count_points:         bool
+    :rtype:                     dict of [str, int] | ClassificationDataSet
+    """
+    # Initializing the histogram/distribution for the data.
+    histogram = {}
+    for target in targets:
+        histogram[target] = 0
+
+    for roi in roi_list:
+        if roi.name is 'background' or roi.name not in targets:
+            if count_points:
+                histogram['background'] += roi.num_points
+            else:
+                histogram['background'] += 1
+        else:  # The ROI is a target
+            if count_points:
+                histogram[roi.name] += roi.num_points
+            else:
+                histogram['background'] += 1
+    return histogram
+

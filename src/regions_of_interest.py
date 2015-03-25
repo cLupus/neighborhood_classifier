@@ -4,7 +4,7 @@ __author__ = 'Sindre Nistad'
 from re import split as regex_split
 from cPickle import dump, load, HIGHEST_PROTOCOL
 
-from common import get_indices, split_numbers
+from common import get_indices, split_numbers, get_histogram
 
 
 class RegionsOfInterest:
@@ -40,6 +40,8 @@ class RegionsOfInterest:
         """ :type : list[str] """
         self.num_bands = 0
         """ :type : int"""
+        self.histogram = None
+        """ :type: dict of [str, int] """
         self.use_aggregate = use_aggregate
         """ :type : bool """
         self.is_normalized = is_normalized
@@ -122,6 +124,7 @@ class RegionsOfInterest:
         means = _read(data_file, '\t')
         std_dev = _read(data_file, '\t')
 
+        data_file.close()
         # Removes the names
         maxs.pop(0)
         mins.pop(0)
@@ -131,6 +134,12 @@ class RegionsOfInterest:
         self.mins = split_numbers(mins)
         self.means = split_numbers(means)
         self.std_devs = split_numbers(std_dev)
+
+    def get_histogram(self):
+        if self.histogram is None:
+            targets = self.rois.keys()
+            self.histogram = get_histogram(self.get_all(), targets)
+        return self.histogram
 
     def _read_meta_data(self, datafile):
         """

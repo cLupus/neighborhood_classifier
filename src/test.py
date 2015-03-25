@@ -18,11 +18,11 @@ def run():
 
     roi = RegionsOfInterest(path)
     roi.set_aggregate(True)
-    net = ClassificationNet(roi, ['soil'], neigborhood_size=3, targets_background_ration=[1])
+    net = ClassificationNet(roi, ['soil'], neigborhood_size=3, targets_background_ration=[1, 1])
     net.neural_net.randomize()
 
-    # net.set_trainer(learning_rate=0.1, verbose=True, momentum=0.1, weight_decay=0.01)
-    #net.train_network(max_epochs=3, verbose=True)
+    net.set_trainer(learning_rate=0.1, verbose=True, momentum=0.1, weight_decay=0.01)
+    net.train_network(max_epochs=3, verbose=True)
     #net.save('../rock.nn')
     #print(net)
 
