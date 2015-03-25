@@ -76,7 +76,7 @@ class ClassificationNet():
         self.neural_net = build_net(input_layers, hidden_layer, output_layer)
         """ :type : FeedForwardNetwork """
         self.data_set = load_dataset(rois, targets, neigborhood_size,
-                                     targets_background_ratio=targets_background_ration,
+                                     targets_background_ratios=targets_background_ration,
                                      have_background=target_background)
         """ :type : ClassificationDataSet """
         self.trainer = None
@@ -337,14 +337,101 @@ def build_net(indim, hiddendim, outdim):
     return buildNetwork(indim, hiddendim, outdim, outclass=SoftmaxLayer, hiddenclass=TanhLayer)
 
 
-def load_dataset(roi_obj, targets, neigborhood_size, targets_background_ratio=None, have_background=True):
+def _load_regular_data(roi_obj, data_set, targets, neigborhood_size):
+    """
+        A helper method for load_dataset to load all the data from a RegionsOfInterest object
+    :param roi_obj:                     The ROI object
+    :param targets:                     The list of targets (may contain only one + background)
+    :param neigborhood_size:            The diameter of the neigborhood
+
+    :type roi_obj:                      RegionsOfInterest
+    :type targets:                      list[str]
+    :type neigborhood_size:             int
+    :return:                            A data set sorting all the points of the regions of interest according to
+                                        'target' and 'background'.
+    :rtype:                             ClassificationDataSet
+    """
+    for roi in roi_obj.get_all():
+        if roi.name not in targets:
+            name = 'background'
+        else:
+            name = roi.name
+        add_points_to_sample(roi, data_set, name, neigborhood_size)
+    return data_set
+
+
+def _find_desired_size(roi_obj, targets_background_ratio):
+    """
+        A helper method to determine the expected sizes of the different targets.
+    :param roi_obj:                     A RegionsOfInterest object, so that all the the distribution of
+                                        points can be determined.
+    :param targets_background_ratio:    The desired ratios of number of points for each target relative to the
+                                        points of background pixels.
+    :return:                            Returns a list of integers describing the number points we would like to
+                                        have of each target.
+
+    :type roi_obj:                      RegionsOfInterest
+    :type targets_background_ratio:     dict of [str, float]
+    """
+    roi_list = roi_obj.get_all()
+    histogram = _count_or_add(roi_list, targets_background_ratio, count=True, count_points=True)
+    num_backgrounds = []
+    for key in histogram.keys():
+        background_pixels = histogram[key] / targets_background_ratio
+    pass
+
+
+def _convert_to_dict(strings, objects):
+    """
+        Converts the the set of strings and objects to a dictionary of the form {strings[0]: objects[0],
+        strings[1]: objects[1], ..., strings[n]: objects[n]}, where n is the last element of the set.
+    :param strings:     A list of strings that will act as the key for each entry.
+    :param objects:     A list of objects that will be the corresponding item.
+    :return:            A dictionary with key/values from the two lists.
+
+    :type strings:      list of [str]
+    :type objects:      list of [object]
+    :rtype:             dict of [str, object]
+    """
+    assert len(strings) == len(objects)
+    res = {}
+    for i in xrange(len(strings)):
+        res[strings[i]] = objects[i]
+    return res
+
+
+def _load_limited_data(roi_obj, data_set, targets, neigborhood_size, targets_background_ratio):
+    """
+        A helper method for load_dataset to load the data when considering a sub-selection.
+    :param roi_obj:                     The ROI object
+    :param targets:                     The list of targets (may contain only one + background)
+    :param neigborhood_size:            The diameter of the neigborhood
+    :param targets_background_ratio:    Specify the ratio of the number target pixels to the number of
+                                        background pixels. The default is to not use it, but it can be useful when
+                                        num targets <<< num background. It is per target excluding background.
+
+    :type roi_obj:                      RegionsOfInterest
+    :type targets:                      list[str]
+    :type neigborhood_size:             int
+    :type targets_background_ratio:     list of [float] | dict of [str, float]
+    :return:                            A data set sorting all the points of the regions of interest according to
+                                        'target' and 'background'.
+    :rtype:                             ClassificationDataSet
+    """
+    assert len(targets) == len(targets_background_ratio)
+    targets_to_background = _convert_to_dict(targets, targets_background_ratio)
+    desiered_size = _find_desired_size(roi_obj, targets_to_background)
+    pass
+
+
+def load_dataset(roi_obj, targets, neigborhood_size, targets_background_ratios=None, have_background=True):
     """
         A method that loads the data set from a RegionsOfInterest object, to a ClassificationDataSet.
         Only the relevant targets needs to be specified, as background will be added automatically.
     :param roi_obj:                     The ROI object
     :param targets:                     The list of targets (may contain only one + background)
     :param neigborhood_size:            The diameter of the neigborhood
-    :param targets_background_ratio:    Specify the ratio of the number target pixels to the number of
+    :param targets_background_ratios:   Specify the ratio of the number target pixels to the number of
                                         background pixels. The default is to not use it, but it can be useful when
                                         num targets <<< num background. It is per target excluding background.
     :param have_background:             Toggles whether or not we are to use a background class. Default is yes.
@@ -352,7 +439,7 @@ def load_dataset(roi_obj, targets, neigborhood_size, targets_background_ratio=No
     :type roi_obj:                      RegionsOfInterest
     :type targets:                      list[str]
     :type neigborhood_size:             int
-    :type targets_background_ratio:     list of [float] | dict of [str, float]
+    :type targets_background_ratios:    list of [float] | dict of [str, float]
     :type have_background:              bool
     :return:                            A data set sorting all the points of the regions of interest according to
                                         'target' and 'background'.
@@ -366,50 +453,24 @@ def load_dataset(roi_obj, targets, neigborhood_size, targets_background_ratio=No
                                      2,
                                      nb_classes=len(targets),
                                      class_labels=targets)
-    roi_list = roi_obj.get_all()
-
-    probabilities = None
-    if targets_background_ratio is not None:
-        if not isinstance(targets_background_ratio, dict):
-            if 'background' in targets:
-                n = len(targets) - 1
-            else:
-                n = len(targets)
-            tmp = {}
-            for i in range(n):
-                tmp[targets[i]] = targets_background_ratio[i]
-            targets_background_ratio = tmp
-        probabilities = {}
-        target_count = _count_or_add(roi_list, targets, count=True)
-        background_count = float(target_count['background'])
-        for key in targets_background_ratio.keys():
-            target_background_ratio = target_count[key] / background_count
-            desiered_ratio = targets_background_ratio[key]
-            if desiered_ratio > 1:
-                # TODO
-                # We want more targets than background
-                probabilities['background'] = target_background_ratio / desiered_ratio
-            else:
-                # TODO
-                probabilities[key] = target_background_ratio * desiered_ratio
-    # Add points to the data set
-    return _count_or_add(roi_list, targets, data_set, neigborhood_size, probabilities)
+    if targets_background_ratios is not None:
+        assert len(targets) == len(targets_background_ratios)
+        return _load_limited_data(roi_obj, data_set, targets, neigborhood_size, targets_background_ratios)
+    else:
+        return _load_regular_data(roi_obj, data_set, targets, neigborhood_size)
 
 
-def _count_or_add(roi_list, targets, data_set=None, neigborhood_size=0,
-                  probabilities=None, count=False, count_points=True):
+def _add_samples_to_data_set(roi_list, targets, data_set, neigborhood_size, probabilities=None):
     """
-        A helper method to either count the number of targets vs background, or add them to the data set.
+        A helper method to add the points of the regions of interest to a data set, according to some probability
+        distribution, which is by default disabled: probability of 1 for the points to be added.
     :param roi_list:            A list of region of interest objects.
     :param targets:             A list of targets, including the 'background' target.
-    :param data_set:            The data set to which the points are to be added iff count is set to True.
-    :param neigborhood_size:    The 'diameter' of the neigborhood. The default is zero; no points added.
+    :param data_set:            The data set to which the points are to be added.
+    :param neigborhood_size:    The 'diameter' of the neigborhood.
     :param probabilities:       A list (or dictionary) of probabilities specifying the probabilities of target
                                 number i is added to the data set. The default is None, specifying that all
                                 targets will be added.
-    :param count:               Toggles the mode of the function: To count the number of targets and background, or to
-                                add the points to the data set.
-    :param count_points:        Toggles whether or not to count each point, or each ROI as a unit of the count mode.
     :return:                    If count is set to False, the function returns the data set.
                                 If count is set to True, the function returns a dictionary of targets (including
                                 'background') that has the frequency of each target.
@@ -419,17 +480,10 @@ def _count_or_add(roi_list, targets, data_set=None, neigborhood_size=0,
     :type data_set:             ClassificationDataSet
     :type neigborhood_size:     int
     :type probabilities:        list[float] | dict of [str, float]
-    :type count:                bool
-    :type count_points:         bool
     :rtype:                     dict of [str, int] | ClassificationDataSet
     """
     target_dict = {}  # This because ClassificationDataSet require the number of a target, as opposed to the name.
     probability_dict = {}  # For convenience.
-    count_data = {}
-    if count:
-        # initialize the dictionary.
-        for target in targets:
-            count_data[target] = 0
 
     # If we are to use probabilities, they must be the same size as the targets.
     if probabilities is not None:
@@ -445,31 +499,47 @@ def _count_or_add(roi_list, targets, data_set=None, neigborhood_size=0,
 
     for roi in roi_list:
         if roi.name is 'background' or roi.name not in targets:
-            if not count:
-                number = target_dict['background']
-                prob = probability_dict['background']
-                if random() <= prob:
-                    add_points_to_sample(roi, data_set, number, neigborhood_size)
-            else:  # We count!
-                if count_points:
-                    count_data['background'] += roi.num_points
-                else:
-                    count_data['background'] += 1
+            number = target_dict['background']
+            prob = probability_dict['background']
+            if random() <= prob:
+                add_points_to_sample(roi, data_set, number, neigborhood_size)
         else:  # The ROI is a target
-            if not count:
-                number = target_dict[roi.name]
-                prob = probability_dict[roi.name]
-                if random() <= prob:
-                    add_points_to_sample(roi, data_set, number, neigborhood_size)
+            number = target_dict[roi.name]
+            prob = probability_dict[roi.name]
+            if random() <= prob:
+                add_points_to_sample(roi, data_set, number, neigborhood_size)
+    return data_set
+
+
+def _histogram(roi_list, targets,  count_points=True):
+    """
+        A helper method to count the distribution of the targets.
+    :param roi_list:            A list of region of interest objects.
+    :param targets:             A list of targets, including the 'background' target.
+    :param count_points:        Toggles whether or not to count each point, or each ROI as a unit of the count mode.
+    :return:                    If count is set to False, the function returns the data set.
+                                If count is set to True, the function returns a dictionary of targets (including
+                                'background') that has the frequency of each target.
+
+    :type roi_list:             list[ROI]
+    :type targets:              list[str]
+    :type count_points:         bool
+    :rtype:                     dict of [str, int] | ClassificationDataSet
+    """
+    count_data = {}
+
+    for roi in roi_list:
+        if roi.name is 'background' or roi.name not in targets:
+            if count_points:
+                count_data['background'] += roi.num_points
             else:
-                if count_points:
-                    count_data[roi.name] += roi.num_points
-                else:
-                    count_data['background'] += 1
-    if count:
-        return count_data
-    else:
-        return data_set
+                count_data['background'] += 1
+        else:  # The ROI is a target
+            if count_points:
+                count_data[roi.name] += roi.num_points
+            else:
+                count_data['background'] += 1
+    return count_data
 
 
 def add_points_to_sample(roi, data_set, target, neighborhood_size):
