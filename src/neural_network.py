@@ -69,10 +69,10 @@ class ClassificationNet():
 
         self.target_background = target_background
         """ :type : bool """
-        self.num_targets = targets
-        """ :type : int """
+        self.targets = targets
+        """ :type : list of [str] """
         self.neigborhood_size = neigborhood_size
-        """ :type : int"""
+        """ :type : int """
         self.neural_net = build_net(input_layers, hidden_layer, output_layer)
         """ :type : FeedForwardNetwork """
         self.data_set = load_dataset(rois, targets, neigborhood_size,
@@ -235,7 +235,7 @@ class ClassificationNet():
                 net = load(handle)
             assert isinstance(net, ClassificationNet)
             self.target_background = net.target_background
-            self.num_targets = net.num_targets
+            self.targets = net.targets
             self.neigborhood_size = net.neigborhood_size
             self.neural_net = net.neigborhood_size
             self.data_set = net.data_set
@@ -301,17 +301,24 @@ def get_neigborhood(img, row, col, neigborhood_size, concatenated=True):
     :type concatenated:         bool
     :return:                    If the concatenated option is set to True,  we return a single list of numbers.
                                 If the concatenated option is set to False, we return a list for each pixel.
+    :rtype:                     list of [list of [int | float]] | list of [list of [list of [int | float]]]
     """
-    neigborhood = [0 for _ in xrange(neigborhood_size ** 2)]
+    if concatenated:
+        neigborhood = [None for _ in xrange(neigborhood_size ** 2)]
+    else:
+        neigborhood = [[None for _ in xrange(neigborhood_size)] for _ in xrange(neigborhood_size)]
     min_x = row - int(neigborhood_size / 2)
     min_y = col - int(neigborhood_size / 2)
     cols = len(img)
     rows = len(img[0])
     for i in xrange(neigborhood_size):
         for j in xrange(neigborhood_size):
-            index = get_index(rows, i, cols, j, neigborhood_size)
             bands = img[col - min_y + j][row - min_x + i]
-            neigborhood[index] = bands
+            if concatenated:
+                index = get_index(rows, i, cols, j, neigborhood_size)
+                neigborhood[index] = bands
+            else:
+                neigborhood[i][j] = bands
     return neigborhood
 
 
@@ -356,7 +363,7 @@ def load_dataset(roi_obj, targets, neigborhood_size, targets_background_ratio=No
         targets.append('background')
 
     data_set = ClassificationDataSet(neigborhood_size ** 2 * roi_obj.num_bands,
-                                     1,
+                                     2,
                                      nb_classes=len(targets),
                                      class_labels=targets)
     roi_list = roi_obj.get_all()
@@ -375,7 +382,7 @@ def load_dataset(roi_obj, targets, neigborhood_size, targets_background_ratio=No
         probabilities = {}
         target_count = _count_or_add(roi_list, targets, count=True)
         background_count = float(target_count['background'])
-        for key in target_count.keys():
+        for key in targets_background_ratio.keys():
             target_background_ratio = target_count[key] / background_count
             desiered_ratio = targets_background_ratio[key]
             if desiered_ratio > 1:
@@ -385,12 +392,12 @@ def load_dataset(roi_obj, targets, neigborhood_size, targets_background_ratio=No
             else:
                 # TODO
                 probabilities[key] = target_background_ratio * desiered_ratio
-            pass
     # Add points to the data set
     return _count_or_add(roi_list, targets, data_set, neigborhood_size, probabilities)
 
 
-def _count_or_add(roi_list, targets, data_set=None, neigborhood_size=0, probabilities=None, count=False):
+def _count_or_add(roi_list, targets, data_set=None, neigborhood_size=0,
+                  probabilities=None, count=False, count_points=True):
     """
         A helper method to either count the number of targets vs background, or add them to the data set.
     :param roi_list:            A list of region of interest objects.
@@ -402,6 +409,7 @@ def _count_or_add(roi_list, targets, data_set=None, neigborhood_size=0, probabil
                                 targets will be added.
     :param count:               Toggles the mode of the function: To count the number of targets and background, or to
                                 add the points to the data set.
+    :param count_points:        Toggles whether or not to count each point, or each ROI as a unit of the count mode.
     :return:                    If count is set to False, the function returns the data set.
                                 If count is set to True, the function returns a dictionary of targets (including
                                 'background') that has the frequency of each target.
@@ -412,6 +420,7 @@ def _count_or_add(roi_list, targets, data_set=None, neigborhood_size=0, probabil
     :type neigborhood_size:     int
     :type probabilities:        list[float] | dict of [str, float]
     :type count:                bool
+    :type count_points:         bool
     :rtype:                     dict of [str, int] | ClassificationDataSet
     """
     target_dict = {}  # This because ClassificationDataSet require the number of a target, as opposed to the name.
@@ -442,7 +451,10 @@ def _count_or_add(roi_list, targets, data_set=None, neigborhood_size=0, probabil
                 if random() <= prob:
                     add_points_to_sample(roi, data_set, number, neigborhood_size)
             else:  # We count!
-                count_data['background'] += 1
+                if count_points:
+                    count_data['background'] += roi.num_points
+                else:
+                    count_data['background'] += 1
         else:  # The ROI is a target
             if not count:
                 number = target_dict[roi.name]
@@ -450,7 +462,10 @@ def _count_or_add(roi_list, targets, data_set=None, neigborhood_size=0, probabil
                 if random() <= prob:
                     add_points_to_sample(roi, data_set, number, neigborhood_size)
             else:
-                count_data[roi.name] += 1
+                if count_points:
+                    count_data[roi.name] += roi.num_points
+                else:
+                    count_data['background'] += 1
     if count:
         return count_data
     else:

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 __author__ = 'Sindre Nistad'
 
 from regions_of_interest import RegionsOfInterest
@@ -16,15 +17,14 @@ def run():
     #path = '../pckld_ROIs/sb_r19_sub_sub_corrected.pkl'
 
     roi = RegionsOfInterest(path)
-    #roi.read_data()
     roi.set_aggregate(True)
-    net = ClassificationNet(roi, ['soil'], neigborhood_size=3)
+    net = ClassificationNet(roi, ['soil'], neigborhood_size=3, targets_background_ration=[1])
     net.neural_net.randomize()
-    net.neural_net.convertToFastNetwork()
-    net.set_trainer(learning_rate=0.1, verbose=True, momentum=0.1, weight_decay=0.01)
-    net.train_network(max_epochs=300, verbose=True)
-    net.save('../rock.nn')
-    print(net)
+
+    # net.set_trainer(learning_rate=0.1, verbose=True, momentum=0.1, weight_decay=0.01)
+    #net.train_network(max_epochs=3, verbose=True)
+    #net.save('../rock.nn')
+    #print(net)
 
 
 run()
