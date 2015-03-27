@@ -6,20 +6,23 @@ __author__ = 'Sindre Nistad'
 
 from warnings import warn
 from cPickle import dump, load, HIGHEST_PROTOCOL
+from math import ceil
 
 from pybrain.datasets import ClassificationDataSet
 from pybrain.tools.shortcuts import buildNetwork
-from pybrain.structure.modules import SoftmaxLayer, TanhLayer
+from pybrain.structure.modules import TanhLayer, SigmoidLayer, LinearLayer
 from pybrain.structure import FeedForwardNetwork
 from pybrain.supervised.trainers import BackpropTrainer
 from pybrain.tools.xml import NetworkReader, NetworkWriter
+from pybrain.utilities import percentError
+from pybrain.optimization.populationbased.ga import GA
 
 from regions_of_interest import RegionsOfInterest
-from data_moving import load_data_set_from_regions_of_interest as load_data
-from data_moving import get_histogram
+from Auxiliary.data_moving import load_data_set_from_regions_of_interest as load_data
+from Auxiliary.data_moving import get_histogram
 
 
-class ClassificationNet():
+class ClassificationNet(object):
     """
         A
     """
@@ -31,7 +34,7 @@ class ClassificationNet():
                  target_background=True,
                  targets_background_ration=None,
                  hidden_layer=-1,
-                 output_layer=1,
+                 hidden_ratio=0.5,
                  split_proportion=-1,
                  set_trainer=False):
         """
@@ -47,7 +50,7 @@ class ClassificationNet():
                                             in relation to target pixels. The default is to disable it.
         :param hidden_layer:                The number of input layers to the network. The default is to have half
                                             as many as there is input nodes and output nodes.
-        :param output_layer:                The number of output layers. The default is 1
+        :param hidden_ratio:                The ratio of hidden layers to the sum of input and output layers.
         :param split_proportion:            Defines how large a proportion will be given to as training data, and
                                             test/validation data. The proportion says what proportion will be used
                                             as test data. The default is to not split the data.
@@ -59,16 +62,13 @@ class ClassificationNet():
         :type targets_background_ration:    list of [float]
         :type neigborhood_size:             int
         :type hidden_layer:                 int
-        :type output_layer:                 int
+        :type hidden_ratio:                 float
         :type split_proportion:             float
         :type set_trainer:                  bool
         :return:
         """
         if neigborhood_size % 2 == 0:
             warn("The size of the neigborhood should be an odd number! Continuing")
-        input_layers = neigborhood_size ** 2 * rois.num_bands
-        if hidden_layer < 0:
-            hidden_layer = int((input_layers + output_layer)/2)
 
         self.target_background = target_background
         """ :type : bool """
@@ -76,12 +76,17 @@ class ClassificationNet():
         """ :type : list of [str] """
         self.neigborhood_size = neigborhood_size
         """ :type : int """
-        self.neural_net = build_net(input_layers, hidden_layer, output_layer)
-        """ :type : FeedForwardNetwork """
         self.data_set = load_data(rois, targets, neigborhood_size,
                                   targets_background_ratios=targets_background_ration,
                                   have_background=target_background)
+        input_layers = self.data_set.indim
+        output_layer = self.data_set.outdim
+        if hidden_layer < 0:
+            hidden_layer = int(ceil((input_layers + output_layer) * hidden_ratio))
+
         """ :type : ClassificationDataSet """
+        self.neural_net = build_net(input_layers, hidden_layer, output_layer)
+        """ :type : FeedForwardNetwork """
         self.histogram = get_histogram(rois.get_all(), targets, count_points=True)
         """ :type: dict of [str, int] """
         self.trainer = None
@@ -136,7 +141,7 @@ class ClassificationNet():
                                            learning_rate, lrdecay, momentum, verbose,
                                            batch_learning, weight_decay)
         else:
-            self.trainer = BackpropTrainer(self.neural_net, self.training_data,
+            self.trainer = BackpropTrainer(self.neural_net, self.data_set,
                                            learning_rate, lrdecay, momentum, verbose,
                                            batch_learning, weight_decay)
 
@@ -145,7 +150,8 @@ class ClassificationNet():
                       verbose=False,
                       continue_epochs=10,
                       validation_proportion=0.25,
-                      force_split=False):
+                      force_split=False,
+                      use_local=False):
         """
             Trains the network until the error rate converges.
         :param max_epochs:              The maximum number of epochs the network is trained. The default is to not set a
@@ -156,40 +162,47 @@ class ClassificationNet():
                                         the 'self.validation_data' has not been set.
         :param force_split:             If the 'self.validation_data' as been set, we can force another split on the
                                         training data.
+        :param use_local:               Toggles whether or not PyBrain is to train the network. If not, the training
+                                        will be done by a self-developed method.
         :type max_epochs:               int
         :type verbose:                  bool
         :type continue_epochs:          int
         :type validation_proportion:    float
         :type force_split:              bool
+        :type use_local:                bool
         :return:                        None
         """
-        if max_epochs <= 0:
-            # We don't give it a stop criteria for time.
-            if self.validation_data is not None:
-                # We have already set aside some of the data for validation
-                if force_split:
-                    # Screw that! I want the data to be split again!
-                    self.trainer.trainUntilConvergence(self.training_data, None, verbose,
-                                                       continue_epochs, validation_proportion)
-                else:
-                    self.trainer.trainUntilConvergence(self.training_data, None, verbose, continue_epochs, 1)
-            else:
-                # We have no validation data set
-                self.trainer.trainUntilConvergence(self.data_set, None, verbose, continue_epochs, validation_proportion)
+        if use_local:
+            self._train(max_epochs, verbose, continue_epochs, validation_proportion, force_split)
         else:
-            # We have a stop criteria.
-            if self.validation_data is not None:
-                # We have already split the data into a validation set, and a training set.
-                if force_split:
-                    # Screw that! I want the data to be split again
-                    self.trainer.trainUntilConvergence(self.training_data, max_epochs, verbose,
-                                                       continue_epochs, validation_proportion)
+            if max_epochs <= 0:
+                # We don't give it a stop criteria for time.
+                if self.validation_data is not None:
+                    # We have already set aside some of the data for validation
+                    if force_split:
+                        # Screw that! I want the data to be split again!
+                        self.trainer.trainUntilConvergence(self.training_data, None, verbose,
+                                                           continue_epochs, validation_proportion)
+                    else:
+                        self.trainer.trainUntilConvergence(self.training_data, None, verbose, continue_epochs, 1)
                 else:
-                    self.trainer.trainUntilConvergence(self.training_data, max_epochs, verbose, continue_epochs, 1)
+                    # We have no validation data set
+                    self.trainer.trainUntilConvergence(self.data_set, None, verbose, continue_epochs,
+                                                       validation_proportion)
             else:
-                # We do not have a validation data set.
-                self.trainer.trainUntilConvergence(self.data_set, max_epochs, verbose,
-                                                   continue_epochs, validation_proportion)
+                # We have a stop criteria.
+                if self.validation_data is not None:
+                    # We have already split the data into a validation set, and a training set.
+                    if force_split:
+                        # Screw that! I want the data to be split again
+                        self.trainer.trainUntilConvergence(self.training_data, max_epochs, verbose,
+                                                           continue_epochs, validation_proportion)
+                    else:
+                        self.trainer.trainUntilConvergence(self.training_data, max_epochs, verbose, continue_epochs, 1)
+                else:
+                    # We do not have a validation data set.
+                    self.trainer.trainUntilConvergence(self.data_set, max_epochs, verbose,
+                                                       continue_epochs, validation_proportion)
 
     def set_target(self, target):
         pass
@@ -205,19 +218,19 @@ class ClassificationNet():
         :type path:     str
         :return:
         """
-        splited_path = path.split('.')
-        ending = splited_path[-1]
-        sub_ending = splited_path[-2]
-        if ending is ('pkl' or 'pickle'):
+        spited_path = path.split('.')
+        ending = spited_path[-1]
+        sub_ending = spited_path[-2]
+        if ending == 'pkl' or ending == 'pickle':
             with open(path, 'wb') as handle:
                 dump(self, handle, HIGHEST_PROTOCOL)
-        elif ending is ('xml' or 'nn') or (ending is 'net' and sub_ending is 'neural'):
+        elif ending == 'xml' or ending == 'nn' or (ending == 'net' and sub_ending == 'neural'):
             NetworkWriter.writeToFile(self.neural_net, path)
-        elif ending is 'data':
-            if sub_ending is 'training':
+        elif ending == 'data':
+            if sub_ending == 'training':
                 with open(path, 'wb') as handle:
                     dump(self.training_data, handle, HIGHEST_PROTOCOL)
-            elif sub_ending is 'validation':
+            elif sub_ending == 'validation':
                 with open(path, 'wb') as handle:
                     dump(self.validation_data, handle, HIGHEST_PROTOCOL)
             else:
@@ -232,9 +245,9 @@ class ClassificationNet():
         :return:        None
         :rtype:         None
         """
-        splited_path = path.split('.')
-        ending = splited_path[-1]
-        sub_ending = splited_path[-2]
+        spited_path = path.split('.')
+        ending = spited_path[-1]
+        sub_ending = spited_path[-2]
         if ending is ('pkl' or 'pickle'):
             with open(path, 'rb') as handle:
                 net = load(handle)
@@ -262,6 +275,32 @@ class ClassificationNet():
                 assert isinstance(validation_data, ClassificationNet)
                 self.validation_data = validation_data
 
+    def _train(self, max_epochs, verbose, continue_epochs, validation_proportion, force_split):
+        ga = GA(self.data_set.evaluateModuleMSE, self.neural_net, minimize=True)
+        for i in range(max_epochs):
+            self.neural_net = ga.learn(0)[0]
+            if verbose:
+                print(percentError(self.trainer.testOnClassData(self.data_set), self.data_set['class']))
+        pass
+
+    def is_better(self, other, validation_data):
+        """
+            Checks if this neural network is better than the other on the given validation data set.
+        :param other:           The other network that is compared against.
+        :param validation_data:
+        :return:                True if this has a strictly better (lower) error score than other.
+                                False if the other has a better (lower) error score than this.
+        :type other:            ClassificationNet
+        :type validation_data:  ClassificationDataSet
+        :rtype:                 bool
+        """
+        my_score = percentError(self.trainer.testOnClassData(dataset=validation_data), validation_data['class'])
+        other_score = percentError(other.trainer.testOnClassData(dataset=validation_data), validation_data['class'])
+        if my_score < other_score:
+            return True
+        else:
+            return False
+
 
 def build_net(indim, hiddendim, outdim):
     """
@@ -275,7 +314,10 @@ def build_net(indim, hiddendim, outdim):
     :return:            A neural network with random weights.
     :rtype:             FeedForwardNetwork
     """
-    return buildNetwork(indim, hiddendim, outdim, outclass=SoftmaxLayer, hiddenclass=TanhLayer)
+    input_layer = LinearLayer
+    hidden_layer = SigmoidLayer
+    out_layer = TanhLayer
+    return buildNetwork(indim, hiddendim, outdim, hiddenclass=hidden_layer, outclass=out_layer)
 
 
 

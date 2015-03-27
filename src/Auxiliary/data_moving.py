@@ -13,11 +13,194 @@ from warnings import warn
 
 from pybrain.datasets import ClassificationDataSet
 
-from regions_of_interest import RegionsOfInterest
-from common import get_histogram
+from Auxiliary.common import Point, ROI, get_neighbors
+from Auxiliary.common import get_histogram, extract_name, split_numbers
+
 
 """
-Loads data
+Pre-process data
+"""
+
+def merge_data_files(*paths):
+
+    pass
+
+"""
+Read data from files
+"""
+
+
+def read_normalizing_data(path):
+        """
+            Reads a file with normalizing data for each band.
+            The file is of the form:
+            Maximum 'numbers'
+            Minimum 'numbers'
+            Means   'numbers'
+            Std_dev 'numbers'
+            Where 'numbers' is a list of numbers.
+        :param path:    The path to the file which will be read
+        :type path:     str
+        :return:
+        """
+        data_file = open(path, 'r')
+        maxs = _read(data_file, '\t')
+        mins = _read(data_file, '\t')
+        means = _read(data_file, '\t')
+        std_dev = _read(data_file, '\t')
+
+        data_file.close()
+        # Removes the names
+        maxs.pop(0)
+        mins.pop(0)
+        means.pop(0)
+        std_dev.pop(0)
+
+        data = {'maximums': split_numbers(maxs),
+                'minimums': split_numbers(mins),
+                'means': split_numbers(means),
+                'standard_deviations': split_numbers(std_dev)
+                }
+        return data
+
+
+def _read_meta_data(datafile):
+        """
+            A method to read the meta-data of the roi file, that is, read what kind of rois there are, how many
+            points each roi has in it and so forth.
+        :param datafile: The data file to be read from
+        :return rois:   returns a list of rois that are ordered according to when they were read, as to make
+                        the reading of the actual points easier
+        """
+        rois = []  # a list for all the rois, so that the order is remembered.
+
+        meta = _read(datafile, '')  # We don't really need the information on the first line
+
+        # Reads the second line of the file "; Number of ROIs: ?". We are interested in ?
+        second_line = _read(datafile, '')
+        number_of_rois = int(second_line[-1])
+
+        # Reads the third line of the file "; File Dimension: ?? x ??"
+        third_line = _read(datafile, '')
+        img_dim = [int(third_line[-3]), int(third_line[-1])]
+
+        # Reads an empty line
+        _read(datafile)
+
+        # Read the ROIs
+        for i in range(number_of_rois):
+            # Read the name of te ROI
+            name_string = _read(datafile)
+            roi_name, roi_sub_name = extract_name(name_string)
+
+            # Read the RGB value of the region (in the form "{r, g, b}")
+            roi_rgb_string = _read(datafile, '')  # Results in ['{r,', 'g,', 'b}']
+            red = roi_rgb_string[-3]
+            green = roi_rgb_string[-2]
+            blue = roi_rgb_string[-1]
+            colors = [red, green, blue]
+            roi_rgb = split_numbers(colors)
+
+            # Reads the number of points there are in that region
+            roi_points_string = _read(datafile, '')
+            roi_points = int(roi_points_string[-1])
+
+            rois.append(ROI(roi_name, roi_sub_name, roi_rgb, roi_points))
+
+            # Makes sure the band information is kept.
+            if i == number_of_rois - 1:
+                # Extracts the different fields, including 'map X', and 'map Y', but not the beginning ';'
+                meta_string = datafile.readline()
+                band_info = [meta.strip() for meta in meta_string.split("  ") if
+                             meta.strip() and meta != ';']
+            else:
+                _read(datafile)  # Reads an empty line
+        # A dictionary that will store all the details
+        result = {'meta': meta,
+                  'number_of_rois': number_of_rois,
+                  'img_dim': img_dim,
+                  'band_info': band_info,
+                  'rois': rois}
+        return result
+
+
+def _read_spectral_data(datafile, results):
+        """
+            A method that reads, and adds all the spectral data into the program
+        :param rois: a list of ROIs
+        :type rois: list[ROI]
+        :return : void
+        """
+        rois = results['rois']
+        res_rois = {}
+        for roi in rois:
+            for i in range(roi.num_points):
+                line = datafile.readline()
+                while line == "" or line == '\n' or line == '\r\n':
+                    line = datafile.readline()
+                specter_string = line
+                specter_string = specter_string.split()
+                spectrum = [float(x) for x in specter_string]
+                identity = int(spectrum[0])
+                x = int(spectrum[1])
+                y = int(spectrum[2])
+                map_x = spectrum[3]
+                map_y = spectrum[4]
+                latitude = spectrum[5]
+                longitude = spectrum[6]
+                bands = spectrum[7:]
+                point = Point(identity, x, y, map_x, map_y, latitude, longitude, bands)
+                roi.add_point(point)
+
+            if roi.name in res_rois:
+                res_rois[roi.name][roi.sub_name] = roi
+            else:
+                res_rois[roi.name] = {}
+                res_rois[roi.name][roi.sub_name] = roi
+        results['num_bands'] = len(bands)
+        results['rois'] = res_rois
+        return results
+
+
+def read_data_from_file(path, send_residuals=False):
+    """
+        An aggregate method for reading the data from a file.
+    :param path:
+    :param send_residuals:
+    :type send_residuals: bool
+    :return:
+    """
+    # TODO: Read data from different sources, and merge the data.
+    datafile = open(path, 'r')
+    results = _read_meta_data(datafile)
+    results = _read_spectral_data(datafile, results)
+    if send_residuals:
+        results['residuals'] = datafile.readlines()
+    datafile.close()
+    return results
+
+
+def _read(data_file, delimiter=None):
+    """
+        Helper method for reading data from file, and cleaning it up.
+    :param data_file:   The file from which we which to read.
+    :param delimiter:   The delimiter for which to split the string. The default is to not split the string.
+    :type data_file:    file
+    :type delimiter:    str
+    :return:            A cleaned up string.
+    :rtype:             str | list of [str]
+    """
+    data = data_file.readline()
+    if delimiter is not (None or ''):
+        return [d.strip() for d in data.split(delimiter)]
+    elif delimiter is '':
+        return [d.strip() for d in data.split()]
+    else:
+        return data.strip()
+
+"""
+Load data
+Primarily for loading data from a regions of interest object to a data set.
 """
 
 
@@ -44,11 +227,11 @@ def load_data_set_from_regions_of_interest(roi_obj, targets, neigborhood_size,
     :rtype:                             ClassificationDataSet
     """
 
-    if have_background:
+    if have_background and 'background' not in targets:
         targets.append('background')
 
     data_set = ClassificationDataSet(neigborhood_size ** 2 * roi_obj.num_bands,
-                                     2,
+                                     1,
                                      nb_classes=len(targets),
                                      class_labels=targets)
     if targets_background_ratios is not None:
@@ -94,7 +277,8 @@ def _load_limited_data(roi_obj, data_set, targets, neigborhood_size, targets_bac
     probabilities = {'background': background_probability}
     for target in targets:
         if target.lower() != 'background':  # For simplicity
-            prob = background_probability * targets_to_background[target]
+            # FIXME: the probability adjustment is incorrect...
+            prob = targets_to_background[target] / background_probability
             if prob > 1:
                 probabilities[target] = 1
             elif prob > 0:
@@ -170,13 +354,11 @@ def _add_samples_to_data_set(roi_list, targets, data_set, neigborhood_size, prob
         if roi.name is 'background' or roi.name not in targets:
             number = target_dict['background']
             prob = probability_dict['background']
-            if random() <= prob:
-                add_points_to_sample(roi, data_set, number, neigborhood_size)
+            add_points_to_sample(roi, data_set, number, neigborhood_size, prob)
         else:  # The ROI is a target
             number = target_dict[roi.name]
             prob = probability_dict[roi.name]
-            if random() <= prob:
-                add_points_to_sample(roi, data_set, number, neigborhood_size)
+            add_points_to_sample(roi, data_set, number, neigborhood_size, prob)
     return data_set
 
 
@@ -185,27 +367,40 @@ Auxiliary
 """
 
 
-def add_points_to_sample(roi, data_set, target, neighborhood_size):
+def add_points_to_sample(roi, data_set, target, neighborhood_size, probability=1):
     """
         Adds all the points in a region of interest to a data set, accounting for neighborhood.
     :param roi:                 The region of interest.
     :param data_set:            The data set to which the points will be added.
     :param target:              The name of the target
     :param neighborhood_size:   The size along the axis
+    :param probability:         The probability that a point will be added to the list.
+
     :type roi:                  ROI
     :type data_set:             ClassificationDataSet
     :type target:               str
     :type neighborhood_size:    int
+    :type probability:          float
     :return:                    None
     :rtype:                     None
     """
+    # Making sure the probability is reasonable.
+    # With the current implementation, this is unnecessary...
+    if probability > 1:
+        probability = 1
+    elif probability < 0:
+        probability = 0
+
     for point in roi.points:
-        neighborhood_list = roi.get_neighbors(point, neighborhood_size, True)
-        bands = [p.bands if p is not None else [0 for _ in xrange(len(point.bands))] for p in neighborhood_list]
-        collected_bands = []
-        for band in bands:
-            collected_bands += band
-        data_set.addSample(collected_bands, target)
+        if probability <= random():
+            continue
+        else:
+            neighborhood_list = get_neighbors(point, roi.points, neighborhood_size, True)
+            bands = [p.bands if p is not None else [0 for _ in range(len(point.bands))] for p in neighborhood_list]
+            collected_bands = []
+            for band in bands:
+                collected_bands += band
+            data_set.addSample(collected_bands, target)
 
 
 def _convert_to_dict(strings, objects):
@@ -222,10 +417,9 @@ def _convert_to_dict(strings, objects):
     """
     assert len(strings) == len(objects)
     res = {}
-    for i in xrange(len(strings)):
+    for i in range(len(strings)):
         res[strings[i]] = objects[i]
     return res
-
 
 
 def _find_feasible_sizes(roi_obj, targets_background_ratio):

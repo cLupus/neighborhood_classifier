@@ -7,7 +7,7 @@ __author__ = 'Sindre Nistad'
 from warnings import warn
 
 from neural_network import ClassificationNet
-from common import get_index
+from Auxiliary.common import get_index
 
 
 def apply_to_image(img, neural_network, normalized_img=False):
