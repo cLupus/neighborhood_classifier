@@ -195,9 +195,9 @@ class RegionsOfInterest(object):
         if self.use_aggregate:
             rois = self.rois[item]
             points = []
-            color = [0, 0, 0]  # TODO: Get a color from the rois
             for key in rois.keys():
                 roi = rois[key]
+                color = roi.rgb
                 points += roi.points
             return ROI(item, "", color, len(points), points)
         else:

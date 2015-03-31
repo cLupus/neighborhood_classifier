@@ -21,8 +21,19 @@ from Auxiliary.common import get_histogram, extract_name, split_numbers
 Pre-process data
 """
 
-def merge_data_files(*paths):
 
+def merge_roi_files(paths):
+    """
+        Method for merging different files together, assuming they are over the same area.
+        :param paths:   A list of paths to files
+        :type paths:    list of [str]
+        :return:        Does not return anything, bu saves the merged data into a new file, called
+                        merged_[file1]_[file2]_..._[filen].txt where [filei] is the name of the i-th file.
+    """
+    data = []
+    for path in paths:
+        data.append(read_data_from_file(path))
+    # TODO
     pass
 
 """
@@ -68,11 +79,15 @@ def _read_meta_data(datafile):
         """
             A method to read the meta-data of the roi file, that is, read what kind of rois there are, how many
             points each roi has in it and so forth.
-        :param datafile: The data file to be read from
-        :return rois:   returns a list of rois that are ordered according to when they were read, as to make
-                        the reading of the actual points easier
+        :param datafile:    The data file to be read from
+        :type datafile:     file
+        :return:            A dictionary with the regions of interest, meta data, image dimensions, and more.
+                            (Everything that was assigned to self earlier.)
+        :rtype:             dict of [str, object]
         """
         rois = []  # a list for all the rois, so that the order is remembered.
+        band_info = ""  # To make Python stop complaining, that it might be used before declared.
+        # (If the file is as it should, it will always be assigned)
 
         meta = _read(datafile, '')  # We don't really need the information on the first line
 
@@ -126,10 +141,14 @@ def _read_meta_data(datafile):
 
 def _read_spectral_data(datafile, results):
         """
-            A method that reads, and adds all the spectral data into the program
-        :param rois: a list of ROIs
-        :type rois: list[ROI]
-        :return : void
+            A method that read the spectral data from the file, and adds it to the result dictionary, which is then
+             processed by the region of interest.
+        :param datafile:    The file from which we read the (spectral) data.
+        :param results:     The results containing the meta data, and the dictionary to which we add the spectral data.
+        :type datafile:     file
+        :type results:      dict of [str, object]
+        :return:            The results dictionary with the added spectral data.
+        :rtype:             dict of [str, object]
         """
         rois = results['rois']
         res_rois = {}
@@ -164,19 +183,21 @@ def _read_spectral_data(datafile, results):
 
 def read_data_from_file(path, send_residuals=False):
     """
-        An aggregate method for reading the data from a file.
-    :param path:
-    :param send_residuals:
-    :type send_residuals: bool
-    :return:
+        An aggregate method for reading the data from a file, and returning a dictionary of the information:
+        'meta', 'number_of_rois', 'img_dim', 'band_info', 'rois', and 'num_bands' are the keys.
+    :param path:            The path to the file we want to read from
+    :param send_residuals:  Toggles whether or not the rest of the file will be sent back. For debugging.
+    :type path:             str
+    :type send_residuals:   bool
+    :return:                A dictionary with all the information from the regions of interest.
+    :rtype:                 dict of [str, str | list of [float] | int | list of [int] | list of [ROI]]
     """
-    # TODO: Read data from different sources, and merge the data.
-    datafile = open(path, 'r')
-    results = _read_meta_data(datafile)
-    results = _read_spectral_data(datafile, results)
+    data_file = open(path, 'r')
+    results = _read_meta_data(data_file)
+    results = _read_spectral_data(data_file, results)
     if send_residuals:
-        results['residuals'] = datafile.readlines()
-    datafile.close()
+        results['residuals'] = data_file.readlines()
+    data_file.close()
     return results
 
 

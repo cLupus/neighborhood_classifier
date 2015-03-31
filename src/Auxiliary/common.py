@@ -5,6 +5,7 @@
 __author__ = 'Sindre Nistad'
 
 from re import split as regex_split
+from warnings import warn
 
 import matplotlib.pylab as plt
 from matplotlib import figure
@@ -169,18 +170,21 @@ def get_neighbors(point, point_list, num_neighbors, use_list=False):
 
 
 class ROI(object):
+    """
+    A class to store the information of a single region of interest, along with some handy methods.
+    """
     def __init__(self, name, sub_name, rgb, num_points, points=None):
         """
             A object to hold the information on a region of interest.
-        :param name:
-        :param rgb:
-        :param num_points:
-        :param points:
+        :param name:        The full name of the region of interest.
+        :param rgb:         The rgb color of the region, as given by the ROI file
+        :param num_points:  The number of points that are in the region
+        :param points:      A list of the actual points of the region. If no points are given, an empty list is created.
 
-        :type name: str
-        :type rgb: list[int]
-        :type num_points: int
-        :type points: list[Point]
+        :type name:         str
+        :type rgb:          list of [int]
+        :type num_points:   int
+        :type points:       list of [Point]
 
         :return:
         """
@@ -188,19 +192,54 @@ class ROI(object):
         self.sub_name = sub_name
         self.rgb = rgb
         self.num_points = num_points
+        self.sorted_mode = ""
+        """ :type: str """
         if points is None:
             self.points = []
         else:
             self.points = points
 
+    def sort(self, mode):
+        """
+            A method to sort the points according to x-y coordinates relative to the (actual) image, or relative to the
+            map coordinates, or the points can be sorted according to latitude, and longitude.
+            The points are first sorted by x/latitude, and then by y/longitude.
+        :param mode:    The mode of sorting. Can be 'map', 'lat-long', or 'x-y'.
+        :type mode:     str
+        :return:        None
+        :rtype:         None
+        """
+        if mode == 'map':
+            expression = lambda p: (p.map_X, p.map_Y)
+        elif mode == 'lat-long' or mode == 'latitude-longitude' or mode == 'latlong':
+            expression = lambda p: (p.latitude, p.longitude)
+        elif mode == 'xy' or mode == 'x-y':
+            expression = lambda p: (p.X, p.Y)
+        else:
+            warn("No valid mode selected")
+            return -1
+        self.points = sorted(self.points, key=expression)
+        self.sorted_mode = mode
+
     def add_point(self, point):
+        """
+            Adds the given point to the list of points in the region of interest.
+        :param point:   The point we want to add
+        :type point:    Point
+        :return:        None
+        :rtype:         None
+        """
         self.points.append(point)
+        self.sorted_mode = ""  # Because the points are likely to be in some disorder after adding one or more points.
 
     def __len__(self):
         return len(self.points)
 
 
 class Point(object):
+    """
+    Stores the information (location) of a single point along with the spectral bands.
+    """
     def __init__(self, identity, x, y, map_x, map_y, latitude, longitude, bands):
         """
             A object to hold, and organize the relevant information for a specific point in the data set.

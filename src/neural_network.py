@@ -40,7 +40,8 @@ class ClassificationNet(object):
         """
             Initializes a neural network for classification.
         :param rois:                        A RegionsOfInterest object containing the ROIs
-        :param targets:                     A list of strings with the target(s)
+        :param targets:                     A list of strings with the target(s), or a simple string
+                                            for a single target.
         :param neigborhood_size:            The size (diameter in pixels) of the neigborhood the
                                             neural network considers.
         :param target_background:           Toggles mode: if true, then we are only interested in classifying ONE
@@ -57,7 +58,7 @@ class ClassificationNet(object):
         :param set_trainer:                 Toggles whether or not the trainer should be created immediately or not.
                                             The default is yes.
         :type rois:                         RegionsOfInterest
-        :type targets:                      list[str]
+        :type targets:                      list of [str] | str
         :type target_background:            bool
         :type targets_background_ration:    list of [float]
         :type neigborhood_size:             int
@@ -69,6 +70,9 @@ class ClassificationNet(object):
         """
         if neigborhood_size % 2 == 0:
             warn("The size of the neigborhood should be an odd number! Continuing")
+        if isinstance(targets, str):
+            # Allows a single string to be passed as target.
+            targets = [targets]
 
         self.target_background = target_background
         """ :type : bool """
