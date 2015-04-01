@@ -7,7 +7,7 @@ __author__ = 'Sindre Nistad'
 from cPickle import dump, load, HIGHEST_PROTOCOL
 
 from Auxiliary.common import get_histogram, extract_name, ROI
-from Auxiliary.data_moving import read_data_from_file, read_normalizing_data
+from Auxiliary.data_management import read_data_from_file, read_normalizing_data
 
 
 class RegionsOfInterest(object):
