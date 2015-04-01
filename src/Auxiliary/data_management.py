@@ -15,6 +15,7 @@ from pybrain.datasets import ClassificationDataSet
 
 from Auxiliary.common import Point, ROI, get_neighbors
 from Auxiliary.common import get_histogram, extract_name, split_numbers
+from regions_of_interest import RegionsOfInterest
 
 
 """
@@ -33,6 +34,10 @@ def merge_roi_files(paths):
     data = []
     for path in paths:
         data.append(read_data_from_file(path))
+    for roi_data in data:
+        rois = roi_data['rois']
+        assert isinstance(rois, RegionsOfInterest)
+        rois.sort('lat-long')
     # TODO
     pass
 

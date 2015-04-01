@@ -109,13 +109,37 @@ class RegionsOfInterest(object):
         assert isinstance(val, bool)
         self.use_aggregate = val
 
+    def sort(self, mode):
+        """
+            Sorts all the regions of interest according to the give mode, which may be 'x-y', 'map', or 'lat-long'.
+        :param mode:    What parameters do we sort on?
+        :type mode:     str
+        :return:        None
+        :rtype:         None
+        """
+        for roi in self.rois:
+            roi.sort(mode)
+
     def get_histogram(self):
+        """
+            Returns a dictionary of regions of interest, and how many points there is in each.
+        :return:    Dictionary where the region of interest is the key, and the number of points
+                    in that region is the value.
+        :rtype:     dict of [str, int]
+        """
         if self.histogram is None:
             targets = self.rois.keys()
             self.histogram = get_histogram(self.get_all(), targets)
         return self.histogram
 
     def save_to_file(self, filename):
+        """
+            Pickles the entire object to the specified file.
+        :param filename:    The full name of the path/file name of the desired output file.
+        :type filename:     str
+        :return:            None
+        :rtype:             None
+        """
         with open(filename, 'wb') as output:
             dump(self, output, HIGHEST_PROTOCOL)
 
