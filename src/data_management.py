@@ -13,10 +13,9 @@ from warnings import warn
 
 from pybrain.datasets import ClassificationDataSet
 
-from Auxiliary.common import Point, ROI, get_neighbors
-from Auxiliary.common import get_histogram, extract_name, split_numbers
-from regions_of_interest import RegionsOfInterest
-
+from common import get_neighbors
+from common import get_histogram, extract_name, split_numbers
+from regions_of_interest import ROI, Point
 
 """
 Pre-process data
@@ -31,13 +30,18 @@ def merge_roi_files(paths):
         :return:        Does not return anything, bu saves the merged data into a new file, called
                         merged_[file1]_[file2]_..._[filen].txt where [filei] is the name of the i-th file.
     """
+    # Get the data from the files
     data = []
     for path in paths:
         data.append(read_data_from_file(path))
     for roi_data in data:
         rois = roi_data['rois']
-        assert isinstance(rois, RegionsOfInterest)
-        rois.sort('lat-long')
+        for key in rois.keys():
+            roi = rois[key]
+            for sub_key in roi.keys():
+                sub_roi = roi[sub_key]
+                sub_roi.sort('lat-long')
+
     # TODO
     pass
 
@@ -195,7 +199,11 @@ def read_data_from_file(path, send_residuals=False):
     :type path:             str
     :type send_residuals:   bool
     :return:                A dictionary with all the information from the regions of interest.
-    :rtype:                 dict of [str, str | list of [float] | int | list of [int] | list of [ROI]]
+    :rtype:                 dict of [str, str |
+                            list of [float] |
+                            int |
+                            list of [int] |
+                            dict of [str, dict of [str, ROI]]]
     """
     data_file = open(path, 'r')
     results = _read_meta_data(data_file)
