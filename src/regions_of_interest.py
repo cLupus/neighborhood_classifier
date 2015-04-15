@@ -163,30 +163,50 @@ class RegionsOfInterest(object):
         if mode is 'min-max' or 'max-min':
             assert self.minimums is not None
             assert self.maximums is not None
-            self._normalize(self.minimums, self.maximums)
+            self._normalize_min_max(self.minimums, self.maximums)
         elif mode is 'gaussian' or 'gauss':
             assert self.means is not None
             assert self.standard_deviations is not None
             self._normalize(self.means, self.standard_deviations)
 
-    def _normalize(self, sub_param, div_param):
+    def _normalize_gaussian(self, mean_param, std_dev_param):
         """
             A method to normalize the rois, as to make it more portable between images.
             The parameters must be per band
             Per now, the modes of normalizing is globally, and only min-max, and gaussian.
-        :param sub_param:   The parameter that is subtracted from the value, e.g. minimum, or mean.
-        :param div_param:   The parameter that divides the subtracted value, e.g. maximum, or std.dev.
-        :type sub_param:    list[float]
-        :type div_param:    list[float]
+        :param mean_param:      The mean value of the data set
+        :param std_dev_param:   The standard deviation of the data set.
+        :type mean_param:       list[float]
+        :type std_dev_param:    list[float]
         :return: None
         :rtype: None
         """
-        if not len(sub_param) == self.num_bands and len(div_param) == self.num_bands:
+        if not len(mean_param) == self.num_bands and len(std_dev_param) == self.num_bands:
             raise Exception("The input parameters does not match the bands in the ROIs")
         for roi in self.get_all():
             for point in roi.points:
                 for i in range(self.num_bands):
-                    point.bands[i] = (point.bands[i] - sub_param[i]) / div_param[i]
+                    point.bands[i] = (point.bands[i] - mean_param[i]) / std_dev_param[i]
+        self.is_normalized = True
+
+    def _normalize_min_max(self, min_param, max_param):
+        """
+            A method to normalize the rois, as to make it more portable between images.
+            The parameters must be per band
+            Per now, the modes of normalizing is globally, and only min-max, and gaussian.
+        :param min_param:   The minimum value of the data set.
+        :param max_param:   The maximum value of the data set.
+        :type min_param:    list[float]
+        :type max_param:    list[float]
+        :return: None
+        :rtype: None
+        """
+        if not len(min_param) == self.num_bands and len(max_param) == self.num_bands:
+            raise Exception("The input parameters does not match the bands in the ROIs")
+        for roi in self.get_all():
+            for point in roi.points:
+                for i in range(self.num_bands):
+                    point.bands[i] = (point.bands[i] - min_param[i]) / (max_param[i] - min_param[i])
         self.is_normalized = True
 
     def absolutize(self, sub_param, div_param, mode='min-max'):

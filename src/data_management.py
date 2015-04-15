@@ -33,14 +33,9 @@ def merge_roi_files(paths):
     # Get the data from the files
     data = []
     for path in paths:
-        data.append(read_data_from_file(path))
-    for roi_data in data:
-        rois = roi_data['rois']
-        for key in rois.keys():
-            roi = rois[key]
-            for sub_key in roi.keys():
-                sub_roi = roi[sub_key]
-                sub_roi.sort('lat-long')
+        rois = read_data_from_file(path)
+        rois = convert_to_single_dict(rois)
+        data.append(rois)
 
     # TODO
     pass
@@ -487,3 +482,19 @@ def _find_feasible_sizes(roi_obj, targets_background_ratio):
                  "The minimum possible number of background pixels, and the given ratios. \nContinuing.")
             break
     return num_pixels
+
+
+def convert_to_single_dict(rois):
+    """
+        Converts a dictionary of dictionary to a single dictionary.
+    :param rois:    The dictionary of dictionaries.
+    :type rois:     dict of [str, dict of [str, object]]
+    :return:        A single dictionary of the concatenated keys of the two dictionaries.
+    :rtype:         dict of [str, object]
+    """
+    result = {}
+    for key in rois.keys():
+        roi = rois[key]
+        for sub_key in roi.keys():
+            result[key + sub_key] = roi[sub_key]
+    return result
