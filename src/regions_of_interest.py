@@ -167,7 +167,7 @@ class RegionsOfInterest(object):
         elif mode is 'gaussian' or 'gauss':
             assert self.means is not None
             assert self.standard_deviations is not None
-            self._normalize(self.means, self.standard_deviations)
+            self._normalize_gaussian(self.means, self.standard_deviations)
 
     def _normalize_gaussian(self, mean_param, std_dev_param):
         """
