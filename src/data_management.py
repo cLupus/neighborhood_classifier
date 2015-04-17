@@ -15,7 +15,7 @@ from pybrain.datasets import ClassificationDataSet
 
 from common import get_neighbors
 from common import get_histogram, extract_name, split_numbers
-from regions_of_interest import ROI, Point
+from region import Point, ROI
 
 """
 Pre-process data
@@ -36,7 +36,11 @@ def merge_roi_files(paths):
         rois = read_data_from_file(path)
         rois = convert_to_single_dict(rois)
         data.append(rois)
-
+    point_set = {}
+    for rois in data:
+        for roi in rois:
+            # roi.
+            pass
     # TODO
     pass
 
@@ -233,14 +237,14 @@ Primarily for loading data from a regions of interest object to a data set.
 """
 
 
-def load_data_set_from_regions_of_interest(roi_obj, targets, neigborhood_size,
+def load_data_set_from_regions_of_interest(roi_obj, targets, neighborhood_size,
                                            targets_background_ratios=None, have_background=True):
     """
         A method that loads the data set from a RegionsOfInterest object, to a ClassificationDataSet.
         Only the relevant targets needs to be specified, as background will be added automatically.
     :param roi_obj:                     The ROI object
     :param targets:                     The list of targets (may contain only one + background)
-    :param neigborhood_size:            The diameter of the neigborhood
+    :param neighborhood_size:           The diameter of the neighborhood
     :param targets_background_ratios:   Specify the ratio of the number target pixels to the number of
                                         background pixels. The default is to not use it, but it can be useful when
                                         num targets <<< num background. It is per target excluding background.
@@ -248,7 +252,7 @@ def load_data_set_from_regions_of_interest(roi_obj, targets, neigborhood_size,
 
     :type roi_obj:                      RegionsOfInterest
     :type targets:                      list[str]
-    :type neigborhood_size:             int
+    :type neighborhood_size:            int
     :type targets_background_ratios:    list of [float] | dict of [str, float]
     :type have_background:              bool
     :return:                            A data set sorting all the points of the regions of interest according to
@@ -259,31 +263,31 @@ def load_data_set_from_regions_of_interest(roi_obj, targets, neigborhood_size,
     if have_background and 'background' not in targets:
         targets.append('background')
 
-    data_set = ClassificationDataSet(neigborhood_size ** 2 * roi_obj.num_bands,
+    data_set = ClassificationDataSet(neighborhood_size ** 2 * roi_obj.num_bands,
                                      1,
                                      nb_classes=len(targets),
                                      class_labels=targets)
     if targets_background_ratios is not None:
         assert len(targets) == len(targets_background_ratios)
-        return _load_limited_data(roi_obj, data_set, targets, neigborhood_size, targets_background_ratios)
+        return _load_limited_data(roi_obj, data_set, targets, neighborhood_size, targets_background_ratios)
     else:
-        return _load_regular_data(roi_obj, data_set, targets, neigborhood_size)
+        return _load_regular_data(roi_obj, data_set, targets, neighborhood_size)
 
 
-def _load_limited_data(roi_obj, data_set, targets, neigborhood_size, targets_background_ratio):
+def _load_limited_data(roi_obj, data_set, targets, neighborhood_size, targets_background_ratio):
     """
         A helper method for load_dataset to load the data when considering a sub-selection. If a ratio is negative,
         it will be interpreted as zero probability.
     :param roi_obj:                     The ROI object
     :param targets:                     The list of targets (may contain only one + background)
-    :param neigborhood_size:            The diameter of the neigborhood
+    :param neighborhood_size:           The diameter of the neighborhood
     :param targets_background_ratio:    Specify the ratio of the number target pixels to the number of
                                         background pixels. The default is to not use it, but it can be useful when
                                         num targets <<< num background. It is per target excluding background.
 
     :type roi_obj:                      RegionsOfInterest
     :type targets:                      list[str]
-    :type neigborhood_size:             int
+    :type neighborhood_size:            int
     :type targets_background_ratio:     list of [float] | dict of [str, float]
     :return:                            A data set sorting all the points of the regions of interest according to
                                         'target' and 'background'.
@@ -314,19 +318,19 @@ def _load_limited_data(roi_obj, data_set, targets, neigborhood_size, targets_bac
                 probabilities[target] = prob
             else:
                 probabilities[target] = 0
-    return _add_samples_to_data_set(roi_obj.get_all(), targets, data_set, neigborhood_size, probabilities)
+    return _add_samples_to_data_set(roi_obj.get_all(), targets, data_set, neighborhood_size, probabilities)
 
 
-def _load_regular_data(roi_obj, data_set, targets, neigborhood_size):
+def _load_regular_data(roi_obj, data_set, targets, neighborhood_size):
     """
         A helper method for load_dataset to load all the data from a RegionsOfInterest object
     :param roi_obj:                     The ROI object
     :param targets:                     The list of targets (may contain only one + background)
-    :param neigborhood_size:            The diameter of the neigborhood
+    :param neighborhood_size:           The diameter of the neighborhood
 
     :type roi_obj:                      RegionsOfInterest
     :type targets:                      list[str]
-    :type neigborhood_size:             int
+    :type neighborhood_size:            int
     :return:                            A data set sorting all the points of the regions of interest according to
                                         'target' and 'background'.
     :rtype:                             ClassificationDataSet
@@ -336,18 +340,18 @@ def _load_regular_data(roi_obj, data_set, targets, neigborhood_size):
             name = 'background'
         else:
             name = roi.name
-        add_points_to_sample(roi, data_set, name, neigborhood_size)
+        add_points_to_sample(roi, data_set, name, neighborhood_size)
     return data_set
 
 
-def _add_samples_to_data_set(roi_list, targets, data_set, neigborhood_size, probabilities=None):
+def _add_samples_to_data_set(roi_list, targets, data_set, neighborhood_size, probabilities=None):
     """
         A helper method to add the points of the regions of interest to a data set, according to some probability
         distribution, which is by default disabled: probability of 1 for the points to be added.
     :param roi_list:            A list of region of interest objects.
     :param targets:             A list of targets, including the 'background' target.
     :param data_set:            The data set to which the points are to be added.
-    :param neigborhood_size:    The 'diameter' of the neigborhood.
+    :param neighborhood_size:   The 'diameter' of the neigborhood.
     :param probabilities:       A list (or dictionary) of probabilities specifying the probabilities of target
                                 number i is added to the data set. The default is None, specifying that all
                                 targets will be added.
@@ -358,7 +362,7 @@ def _add_samples_to_data_set(roi_list, targets, data_set, neigborhood_size, prob
     :type roi_list:             list[ROI]
     :type targets:              list[str]
     :type data_set:             ClassificationDataSet
-    :type neigborhood_size:     int
+    :type neighborhood_size:    int
     :type probabilities:        list[float] | dict of [str, float]
     :rtype:                     ClassificationDataSet
     """
@@ -383,11 +387,11 @@ def _add_samples_to_data_set(roi_list, targets, data_set, neigborhood_size, prob
         if roi.name is 'background' or roi.name not in targets:
             number = target_dict['background']
             prob = probability_dict['background']
-            add_points_to_sample(roi, data_set, number, neigborhood_size, prob)
+            add_points_to_sample(roi, data_set, number, neighborhood_size, prob)
         else:  # The ROI is a target
             number = target_dict[roi.name]
             prob = probability_dict[roi.name]
-            add_points_to_sample(roi, data_set, number, neigborhood_size, prob)
+            add_points_to_sample(roi, data_set, number, neighborhood_size, prob)
     return data_set
 
 

@@ -1,2 +1,2 @@
-__author__ = 'sindrenistad'
-__all__ = ['neural_network', 'regions_of_interest', 'test']
+__author__ = 'Sindre Nistad'
+# __all__ = ['neural_network', 'regions_of_interest', 'test']
