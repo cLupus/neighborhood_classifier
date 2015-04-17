@@ -4,9 +4,8 @@ A collection of methods that can search for good parameters for the neural netwo
 """
 __author__ = 'Sindre Nistad'
 
-
-from neural_network import ClassificationNet
-from regions_of_interest import RegionsOfInterest
+from Classifier.neural_network import ClassificationNet
+from RegionOfInterest.regions_of_interest import RegionsOfInterest
 
 folder = '../ASCII roi/'
 normalized = 'normalizing/'

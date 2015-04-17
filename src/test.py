@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 __author__ = 'Sindre Nistad'
 
-from regions_of_interest import RegionsOfInterest
-from neural_network import ClassificationNet
-from data_management import merge_roi_files
+from RegionOfInterest.regions_of_interest import RegionsOfInterest
+from Classifier.neural_network import ClassificationNet
+from Common.data_management import merge_roi_files
 
 
 folder = '../ASCII roi/'

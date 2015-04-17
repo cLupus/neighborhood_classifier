@@ -13,9 +13,9 @@ from warnings import warn
 
 from pybrain.datasets import ClassificationDataSet
 
-from common import get_neighbors
-from common import get_histogram, extract_name, split_numbers
-from region import Point, ROI
+from Common.common import get_neighbors
+from Common.common import get_histogram, extract_name, split_numbers
+from RegionOfInterest.region import Point, ROI
 
 """
 Pre-process data

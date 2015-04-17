@@ -1,6 +1,6 @@
 __author__ = 'Sindre Nistad'
 
-from regions_of_interest import RegionsOfInterest
+from RegionOfInterest.regions_of_interest import RegionsOfInterest
 
 
 def run():

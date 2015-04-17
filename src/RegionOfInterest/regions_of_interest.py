@@ -5,9 +5,9 @@ Classes and methods for reading, and interpreting the data from a ASCII ROI file
 __author__ = 'Sindre Nistad'
 import sys
 
-from common import get_histogram, extract_name
-from data_management import read_data_from_file, read_normalizing_data
-from region import ROI
+from Common.common import get_histogram, extract_name
+from Common.data_management import read_data_from_file, read_normalizing_data
+from RegionOfInterest.region import ROI
 
 if sys.version_info.major == 2:
     from cPickle import dump, load, HIGHEST_PROTOCOL

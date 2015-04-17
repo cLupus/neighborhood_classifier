@@ -17,9 +17,9 @@ from pybrain.tools.xml import NetworkReader, NetworkWriter
 from pybrain.utilities import percentError
 from pybrain.optimization.populationbased.ga import GA
 
-from regions_of_interest import RegionsOfInterest
-from data_management import load_data_set_from_regions_of_interest as load_data
-from data_management import get_histogram
+from RegionOfInterest.regions_of_interest import RegionsOfInterest
+from Common.data_management import load_data_set_from_regions_of_interest as load_data
+from Common.data_management import get_histogram
 
 
 class ClassificationNet(object):
