@@ -3,14 +3,7 @@ __author__ = 'Sindre Nistad'
 
 from RegionOfInterest.regions_of_interest import RegionsOfInterest
 from Classifier.neural_network import ClassificationNet
-from Common.data_management import merge_roi_files
-
-
-folder = '../ASCII roi/'
-normalized = 'normalizing/'
-targets = ['master_r19_7_5_emissivity_sub', 'sb_r19_sub_sub_corrected', 'sb_r20_2011_rfl_sub',
-           'sb_r21_sub_sub_corrected', 'sb_r22_sub_sub_corrected_colored']
-extension = '.txt'
+from RegionOfInterest.export import get_file_list
 
 
 def run():
@@ -19,9 +12,16 @@ def run():
     # #print(net)
     # best = hidden_layer_to_input_output_layers(0, ['soil'], [0.8, 1], 0.02, 3)
     # best.save('../best.nn')
-    t = [folder + targets[0] + extension, folder + targets[1] + extension]
-    merge_roi_files(t)
-    pass
+    # t = [folder + targets[0] + extension, folder + targets[1] + extension]
+    #merge_roi_files(t)
+
+    files = get_file_list()
+    normalized_files = get_file_list(True)
+    roi_master_r19 = RegionsOfInterest(files[0], normalizing_path=normalized_files[0], normalize=False)
+
+    #print roi_master_r19.standard_deviations
+
+    roi_master_r19.save_to_csv(";", "../master_r19.csv")
 
 
 def run_neural_network(i, mode='guass', target=None, neigborhood_size=3,
@@ -77,7 +77,5 @@ def run_neural_network(i, mode='guass', target=None, neigborhood_size=3,
     net.train_network(max_epochs=max_epochs, verbose=verbose)
     name = target[0] + '.nn'
     net.save('../' + name)
-
-
 
 run()

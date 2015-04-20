@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
+from __future__ import print_function
+
 __author__ = 'Sindre Nistad'
 
 from warnings import warn
+from Common.common import strip_and_add_space, list_to_string
 
 
 class ROI(object):
@@ -25,15 +28,21 @@ class ROI(object):
         :return:
         """
         self.name = name
+        """ :type : str """
         self.sub_name = sub_name
+        """ :type : str """
         self.rgb = rgb
+        """ :type : list[int] """
         self.num_points = num_points
+        """ :type : int """
         self.sorted_mode = ""
         """ :type: str """
         if points is None:
             self.points = []
+            """ :type : list[Point] """
         else:
             self.points = points
+            """ :type : list[Point] """
 
     def sort(self, mode):
         """
@@ -119,6 +128,45 @@ class ROI(object):
         """
         self.points.append(point)
         self.sorted_mode = ""  # Because the points are likely to be in some disorder after adding one or more points.
+
+    def export_to_csv(self, return_val=False, delimiter=",", path=None):
+        """
+            Creates a 'CSV' file where all the information in the ROI object is stored.
+            Format: "NAME, SUB_NAME, (R, G, B), ID, X, Y, MAP_X, MAP_Y, LATITUDE, LONGITUDE, BAND 1, ..., BAND n"
+        :param return_val:  Toggles, whether or not the function is return the string, or save it to a file. The
+                            default is to save it to a file.
+        :param delimiter:   What character the values are separated by. Default is ','
+        :param path:        The path to the file in which the values are to be stored. If the path is not given, it
+                            will store the file as "NAME_SUB_NAME.csv"
+        :type delimiter:    str
+        :type path:         str
+        :type return_val:   bool
+        :return:            If return_val is set to False, the method returns nothing, instead it writes it to a file.
+                            If return_val is set to True, it returns a string of what would have been written to file.
+        :rtype:             None | str
+
+        """
+        delimiter = strip_and_add_space(delimiter)
+        if not return_val:
+            if path is not None:
+                file_name = path
+            else:
+                file_name = self.name + "_" + self.sub_name + ".csv"
+            f = open(file_name, 'w')
+        result_string = ""
+        pre = self.name + delimiter + self.sub_name + delimiter + str(self.rgb[0]) + delimiter + \
+              str(self.rgb[2]) + delimiter + str(self.rgb[2]) + delimiter
+        for point in self.points:
+            prefix = pre + str(point.identity) + delimiter + str(point.X) + delimiter + str(point.Y) + delimiter + \
+                     str(point.map_X) + delimiter + str(point.map_Y) + delimiter + \
+                     str(point.latitude) + delimiter + str(point.longitude)
+
+            point_string = prefix + delimiter + point.get_bands_as_string(delimiter) + '\n'
+            result_string += point_string
+        if return_val:
+            return result_string
+        else:
+            print(result_string, file=f)
 
     def __len__(self):
         return len(self.points)
@@ -211,13 +259,31 @@ class Point(object):
         :return:
         """
         self.identity = int(identity)
+        """ :type : int """
         self.X = int(x)
+        """ :type : int """
         self.Y = int(y)
+        """ :type : int """
         self.map_X = map_x
+        """ :type : float """
         self.map_Y = map_y
+        """ :type : float """
         self.latitude = latitude
+        """ :type : float """
         self.longitude = longitude
+        """ :type : float """
         self.bands = bands
+        """ :type : list[float] """
+
+    def get_bands_as_string(self, delimiter=","):
+        """
+            Returns a single string of the value of all the bands in this point.
+        :param delimiter:   What character the values are separated by.
+        :type delimiter:    str
+        :return:            String of bands
+        :rtype:             str
+        """
+        return list_to_string(self.bands, delimiter)
 
     def get_value(self, val):
         """

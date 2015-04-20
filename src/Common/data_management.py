@@ -33,14 +33,44 @@ def merge_roi_files(paths):
     # Get the data from the files
     data = []
     for path in paths:
-        rois = read_data_from_file(path)
+        # Read the regions of interest information from its file
+        roi_data = read_data_from_file(path)
+        # The dict of dict of region polygons with points
+        rois = roi_data['rois']
         rois = convert_to_single_dict(rois)
-        data.append(rois)
+        # Update the region of interest polygons
+        roi_data['rois'] = rois
+        data.append(roi_data)
     point_set = {}
-    for rois in data:
-        for roi in rois:
-            # roi.
-            pass
+    for roi_data in data:
+        meta = roi_data['meta']
+        """ :type : str """
+        number_of_rois = roi_data['number_of_rois']
+        """ :type : int """
+        img_dim = roi_data['img_dim']
+        """ :type : list[int] """
+        band_info = roi_data['band_info']
+        """ :type : list[str] """
+        rois = roi_data['rois']
+        """ :type : dict[str, ROI] """
+        num_bands = roi_data['num_bands']
+        """ :type : int """
+        for key in rois.keys():
+            roi = rois[key]
+            for point in roi.points:
+                # TODO: Have a boundary for what is considered close enough
+                coord = "LA" + str(point.latitude) + "LO" + str(point.longitude)
+                extended_point = {'meta': meta,
+                                  'number_of_rois': number_of_rois,
+                                  'img_dim': img_dim,
+                                  'band_info': band_info,
+                                  'num_bands': num_bands,
+                                  'point': point
+                                  }
+                if coord in point_set:
+                    point_set[coord].append(extended_point)
+                else:
+                    point_set[coord] = [extended_point]
     # TODO
     pass
 
@@ -97,7 +127,7 @@ def _read_meta_data(datafile):
         band_info = ""  # To make Python stop complaining, that it might be used before declared.
         # (If the file is as it should, it will always be assigned)
 
-        meta = _read(datafile, '')  # We don't really need the information on the first line
+        meta = _read(datafile)  # We don't really need the information on the first line
 
         # Reads the second line of the file "; Number of ROIs: ?". We are interested in ?
         second_line = _read(datafile, '')
@@ -118,9 +148,9 @@ def _read_meta_data(datafile):
 
             # Read the RGB value of the region (in the form "{r, g, b}")
             roi_rgb_string = _read(datafile, '')  # Results in ['{r,', 'g,', 'b}']
-            red = roi_rgb_string[-3]
-            green = roi_rgb_string[-2]
-            blue = roi_rgb_string[-1]
+            red = roi_rgb_string[-3][1]
+            green = roi_rgb_string[-2][0]
+            blue = roi_rgb_string[-1][0]
             colors = [red, green, blue]
             roi_rgb = split_numbers(colors)
 
@@ -134,8 +164,7 @@ def _read_meta_data(datafile):
             if i == number_of_rois - 1:
                 # Extracts the different fields, including 'map X', and 'map Y', but not the beginning ';'
                 meta_string = datafile.readline()
-                band_info = [meta.strip() for meta in meta_string.split("  ") if
-                             meta.strip() and meta != ';']
+                band_info = [item.strip() for item in meta_string.split("  ") if item.strip() and item != ';']
             else:
                 _read(datafile)  # Reads an empty line
         # A dictionary that will store all the details
@@ -192,7 +221,13 @@ def _read_spectral_data(datafile, results):
 def read_data_from_file(path, send_residuals=False):
     """
         An aggregate method for reading the data from a file, and returning a dictionary of the information:
-        'meta', 'number_of_rois', 'img_dim', 'band_info', 'rois', and 'num_bands' are the keys.
+        'meta',
+        'number_of_rois',
+        'img_dim',
+        'band_info',
+        'rois', and
+        'num_bands'
+        are the keys.
     :param path:            The path to the file we want to read from
     :param send_residuals:  Toggles whether or not the rest of the file will be sent back. For debugging.
     :type path:             str
@@ -500,5 +535,5 @@ def convert_to_single_dict(rois):
     for key in rois.keys():
         roi = rois[key]
         for sub_key in roi.keys():
-            result[key + sub_key] = roi[sub_key]
+            result[key + "_" + sub_key] = roi[sub_key]
     return result

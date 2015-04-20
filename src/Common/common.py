@@ -58,11 +58,7 @@ def split_numbers(numbers):
     :return :       List of numbers
     :rtype:         list of [float]
     """
-
-    res = []
-    for elm in numbers:
-        res.append(int(filter(str.isdigit, elm)))
-    return res
+    return [float(num) for num in numbers]
 
 
 def get_histogram(roi_list, targets,  count_points=True):
@@ -208,3 +204,34 @@ def get_AVIRIS_wavelengths(unit='micrometer'):
         return [1/(wavelength * 10 ** -6) for wavelength in wavelengths.reverse()]
     else:
         raise AttributeError("The given unit, " + unit + " is invalid, or has not been implemented yet.")
+
+
+def strip_and_add_space(string):
+    """
+        Strips the string, and then adds a single space to it, useful for making sure a delimiter is only the character
+        followed by a space, as to make it pretty.
+    :param string:  The string to be treated
+    :type string:   str
+    :return:        A striped string with an additional space at the end.
+    :rtype:         str
+    """
+    # To make sure it only have one space after the delimiter character.
+    string = string.strip()
+    string += " "
+    return string
+
+
+def list_to_string(l, delimiter=','):
+    """
+        Converts a list of objects to a single string, where the objects are separated by 'delimiter'.
+    :param l:           List of objects
+    :param delimiter:   The delimiter to divide the data
+    :type l:            list of [T]
+    :type delimiter:    str
+    :return:            Single string of the sting version of the objects, separated by 'delimiter'.
+    :rtype:             str
+    """
+    delimiter = strip_and_add_space(delimiter)
+    s = "".join([str(itm) + delimiter for itm in l])
+    s = s[:-2]
+    return s

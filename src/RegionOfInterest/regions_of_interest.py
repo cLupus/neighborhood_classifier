@@ -5,9 +5,10 @@ Classes and methods for reading, and interpreting the data from a ASCII ROI file
 __author__ = 'Sindre Nistad'
 import sys
 
-from Common.common import get_histogram, extract_name
+from Common.common import get_histogram, extract_name, list_to_string
 from Common.data_management import read_data_from_file, read_normalizing_data
 from RegionOfInterest.region import ROI
+from Common.common import strip_and_add_space
 
 if sys.version_info.major == 2:
     from cPickle import dump, load, HIGHEST_PROTOCOL
@@ -22,25 +23,33 @@ class RegionsOfInterest(object):
         A holder/structure for the ROI file, as given by ENVI (in ASCII format)
     """
     def __init__(self, path, read_data=True, use_aggregate=True,
-                 normalizing_path=None, mode='min-max', is_normalized=False):
+                 normalizing_path=None, mode='min-max', normalize=True, is_normalized=False):
         """
             Creates a RegionsOfInterest object, which is a collection of region on interest, each having a
             number of points in it. The default is to read the data at creation, and to use the aggregate
             name of the regions, e.g. 'rock' instead of 'rock_23'.
-        :param path:            The path to either the ROI text file, or an already pickled RegionsOfInterest object.
-        :param read_data:       Decides whether or not the data is to be read when the new RegionsOfInterest object
-                                is created. The default is to read at creation.
-        :param use_aggregate:   Decides whether or not you can refer to a region by its general name, e.g. 'rock', or
-                                if you have to specify the entire name of the region e.g. 'rock_r43'. The default is
-                                to use the aggregate.
-        :param is_normalized:   Specify whether or not the input data is normalized or not. The default is not.
-        :type path:             str
-        :type read_data:        bool
-        :type use_aggregate:    bool
-        :type is_normalized:    bool
+        :param path:                The path to either the ROI text file, or an already pickled RegionsOfInterest
+        object.
+        :param read_data:           Decides whether or not the data is to be read when the new RegionsOfInterest object
+                                    is created. The default is to read at creation.
+        :param use_aggregate:       Decides whether or not you can refer to a region by its general name,
+        e.g. 'rock', or
+                                    if you have to specify the entire name of the region e.g. 'rock_r43'. The default is
+                                    to use the aggregate.
+        :param normalizing_path:    The path to where the normalizing data is stored for the data set.
+        :param mode:                The mode of how the data is to be normalized.
+        :param normalize:           Toggles whether or not the data will be normalized. Default is True.
+        :param is_normalized:       Specify whether or not the input data is normalized or not. The default is not.
+        :type path:                 str
+        :type read_data:            bool
+        :type use_aggregate:        bool
+        :type normalizing_path:     str
+        :type mode:                 str
+        :type normalize:            bool
+        :type is_normalized:        bool
         """
         self.path = path
-        """ :type : str """
+        """ :type : list of [str] """
         self.rois = {}
         """ :type : dict of [str, dict of [str, ROI]] """
         self.number_of_rois = 0
@@ -71,21 +80,42 @@ class RegionsOfInterest(object):
         if read_data:
             ending = self.path.split('.')[-1]
             if ending == 'pkl' or ending == 'pickle':
-                self.load_roi_object(self.path)
+                self.load_roi_object(path)
             else:
-                data = read_data_from_file(self.path)
-                self.rois = data['rois']
-                self.number_of_rois = data['number_of_rois']
-                self.meta = data['meta']
-                self.img_dim = data['img_dim']
-                self.band_info = data['band_info']
-                self.num_bands = data['num_bands']
+                self._load_data_from_file()
         if normalizing_path is not None:
-            data = read_normalizing_data(normalizing_path)
-            self.maximums = data['maximums']
-            self.minimums = data['minimums']
-            self.means = data['means']
-            self.standard_deviations = data['standard_deviations']
+            self._load_normalizing_data(normalizing_path, mode, normalize)
+
+    def _load_data_from_file(self):
+        """
+            Loads the region of interest data from the given file, and adds it to the fields of this object.
+        :return:    None
+        :rtype:     None
+        """
+        data = read_data_from_file(self.path)
+        self.rois = data['rois']
+        self.number_of_rois = data['number_of_rois']
+        self.meta = data['meta']
+        self.img_dim = data['img_dim']
+        self.band_info = data['band_info']
+        self.num_bands = data['num_bands']
+
+    def _load_normalizing_data(self, path, mode, normalize=True):
+        """
+            Loads the data so that normalizing is possible, and then normalizes the data
+        :param path:    The path to where the normalizing data is located
+        :param mode:    What kind of normalizing should be done.
+        :type path:     str
+        :type mode:     str
+        :return:        None
+        :rtype:         None
+        """
+        data = read_normalizing_data(path)
+        self.maximums = data['maximums']
+        self.minimums = data['minimums']
+        self.means = data['means']
+        self.standard_deviations = data['standard_deviations']
+        if normalize:
             self.normalize(mode)
 
     def load_roi_object(self, path):
@@ -150,6 +180,42 @@ class RegionsOfInterest(object):
         with open(filename, 'wb') as output:
             dump(self, output, HIGHEST_PROTOCOL)
 
+    def save_to_csv(self, delimiter=",", path=None):
+        """
+            Saves all the information to a CSV file. (Two, if the data is normalized: one for the 'raw' data, and one
+            for the normalizing data.
+        :param delimiter:   The delimiter to separate the data.
+        :param path:        The path to where the CSV file is to be saved
+        :type delimiter:    str
+        :type path:         str
+        :return:            None
+        :rtype:             None
+        """
+        if path is None:
+            path = self.path
+            path = path.split(".")[0]
+            path += ".csv"
+        f = open(path, 'w')
+        delimiter = strip_and_add_space(delimiter)
+        label = "Name" + delimiter + "sub_name" + delimiter + \
+                "Red" + delimiter + "Green" + delimiter + "Blue" + delimiter
+        label += list_to_string(self.band_info, delimiter)
+        f.write(label + '\n')
+        for roi in self.get_all():
+            f.write(roi.export_to_csv(return_val=True, delimiter=delimiter))
+        f.close()
+        if self.maximums is not None:
+            f = open(path + '.norm.csv', 'w')
+            meta = self.band_info[7:]
+            description = "Value" + delimiter + list_to_string(meta, delimiter)
+            description = description[:-2]  # Removes the last delimiter
+            f.write(description + '\n')
+            f.write("Maximum" + delimiter + list_to_string(self.maximums, delimiter) + '\n')
+            f.write("Minimum" + delimiter + list_to_string(self.minimums, delimiter) + '\n')
+            f.write("Mean" + delimiter + list_to_string(self.means, delimiter) + '\n')
+            f.write("Standard deviation" + delimiter + list_to_string(self.standard_deviations, delimiter) + '\n')
+            f.close()
+
     def normalize(self, mode='min-max'):
         """
             Normalizes the data. Makes it simpler than the original normalize function, which takes a subtraction, and
@@ -210,6 +276,15 @@ class RegionsOfInterest(object):
                     point.bands[i] = (point.bands[i] - min_param[i]) / (max_param[i] - min_param[i])
         self.is_normalized = True
 
+    def absolutize(self, mode='min-max'):
+        if mode == 'min-max' or mode == 'max-min':
+            self._absolutize_min_max()
+        elif mode == 'gaussian' or mode == 'gauss':
+            self._abolutize_gaussian()
+        else:
+            raise NotImplementedError("Only min-max, and gaussian reversed normalize has been implemented")
+        self.is_normalized = False
+
     def _absolutize_min_max(self):
         """
             Reverts what have been done when normalizing the data.
@@ -263,4 +338,3 @@ class RegionsOfInterest(object):
 
     def __len__(self):
         return len(self.rois)
-
