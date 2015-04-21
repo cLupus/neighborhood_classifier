@@ -3,7 +3,7 @@ __author__ = 'Sindre Nistad'
 
 from RegionOfInterest.regions_of_interest import RegionsOfInterest
 from Classifier.neural_network import ClassificationNet
-from RegionOfInterest.export import get_file_list
+from Database.database import create_database
 
 
 def run():
@@ -15,13 +15,14 @@ def run():
     # t = [folder + targets[0] + extension, folder + targets[1] + extension]
     #merge_roi_files(t)
 
-    files = get_file_list()
-    normalized_files = get_file_list(True)
-    roi_master_r19 = RegionsOfInterest(files[0], normalizing_path=normalized_files[0], normalize=False)
+    # files = get_file_list()
+    #normalized_files = get_file_list(True)
+    #roi_master_r19 = RegionsOfInterest(files[0], normalizing_path=normalized_files[0], normalize=False)
 
     #print roi_master_r19.standard_deviations
 
-    roi_master_r19.save_to_csv(";", "../master_r19.csv")
+    # roi_master_r19.save_to_csv(";", "../master_r19.csv")
+    create_database(False, True)
 
 
 def run_neural_network(i, mode='guass', target=None, neigborhood_size=3,

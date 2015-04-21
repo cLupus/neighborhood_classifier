@@ -76,3 +76,5 @@ def get_neigborhood(img, row, col, neigborhood_size, concatenated=True):
             else:
                 neigborhood[i][j] = bands
     return neigborhood
+
+

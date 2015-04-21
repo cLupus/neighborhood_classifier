@@ -29,11 +29,11 @@ class RegionsOfInterest(object):
             number of points in it. The default is to read the data at creation, and to use the aggregate
             name of the regions, e.g. 'rock' instead of 'rock_23'.
         :param path:                The path to either the ROI text file, or an already pickled RegionsOfInterest
-        object.
+                                    object.
         :param read_data:           Decides whether or not the data is to be read when the new RegionsOfInterest object
                                     is created. The default is to read at creation.
         :param use_aggregate:       Decides whether or not you can refer to a region by its general name,
-        e.g. 'rock', or
+                                    e.g. 'rock', or
                                     if you have to specify the entire name of the region e.g. 'rock_r43'. The default is
                                     to use the aggregate.
         :param normalizing_path:    The path to where the normalizing data is stored for the data set.

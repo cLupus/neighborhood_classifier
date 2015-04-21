@@ -324,5 +324,9 @@ def build_net(indim, hiddendim, outdim):
     return buildNetwork(indim, hiddendim, outdim, hiddenclass=hidden_layer, outclass=out_layer)
 
 
+def make_nets(targets):
+    nets = {}
+    for target in targets:
+        nets[target] = ClassificationNet()
 
 
