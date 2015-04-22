@@ -1,6 +1,7 @@
 __author__ = 'Sindre Nistad'
 
 from RegionOfInterest.regions_of_interest import RegionsOfInterest
+from Database.database import roi_to_database
 
 
 def get_file_list(normalized=False):
@@ -32,7 +33,12 @@ def get_all_rois(normalized=True):
     """
     files = get_file_list()
     normalized_file = get_file_list(True)
-    return [RegionsOfInterest(files[i], normalizing_path=normalized_file[i], ) for i in range(len(files))]
+    return [
+        RegionsOfInterest(files[i],
+                          normalizing_path=normalized_file[i],
+                          normalize=normalized)
+        for i in range(len(files))
+    ]
 
 
 def export_to_pickle():
@@ -50,6 +56,22 @@ def export_to_pickle():
 
 
 def export_to_csv(delimiter=",", normalized=True):
+    """
+        Exports all the rois to CSV
+    :param delimiter:   The delimiter to be used. Default is ','
+    :param normalized:  Toggles whether or not the rois will be normalized, or not. Default is True.
+    :type delimiter:    str
+    :type normalized:   bool
+    :return:            Does not return anything, but creates csv files.
+    :rtype:             None
+    """
     rois = get_all_rois(normalized=normalized)
     for roi in rois:
         roi.save_to_csv(delimiter)
+
+
+def export_to_potgres():
+    for roi in get_all_rois():
+        roi_to_database(roi)
+    # TODO: Implement
+    pass
