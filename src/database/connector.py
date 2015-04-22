@@ -1,15 +1,11 @@
 # -*- coding: utf-8 -*-
+"""
+In this file, all the communication between the main program, and the database is handled.
+"""
+
 __author__ = 'Sindre Nistad'
 
-from sqlalchemy import create_engine
-from sqlalchemy.engine.url import URL
-
-import pony.orm as pony
-
-from Database.create_database import create_database
-
-
-import settings
+from database import db
 
 
 def db_connect():
@@ -19,7 +15,8 @@ def db_connect():
     :return:    A Database engine
     :rtype:     Engine
     """
-    return create_engine(URL(**settings.DATABASE))
+    # return create_engine(URL(**settings.DATABASE))
+    return db.get_connection()
 
 
 def create_tables(overwrite=False, debug=True):
@@ -28,4 +25,4 @@ def create_tables(overwrite=False, debug=True):
         True, then, if there is any previous databases with the same name as in settings.py, it will be dropped.
     :return:
     """
-    create_database(overwrite=overwrite, debug=debug)
+    db.create_database(overwrite=overwrite, debug=debug)

@@ -54,3 +54,19 @@ docs/_build/
 target/
 
 python object ROIs
+
+# Project specific
+ASCII roi/*
+.idea/*
+*.pkl
+*.pickle
+*.nn
+*.profile*
+*params*
+
+# Secret stuff
+settings.py
+
+# CSV/EXCEL
+*.csv
+*.xlsx
