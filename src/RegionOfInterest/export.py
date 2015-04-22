@@ -41,6 +41,19 @@ def get_all_rois(normalized=True):
     ]
 
 
+def get_roi(i, normalized=False):
+    """
+        Get a single set of regions of interest (e.g. the MASTER set)
+    :param i:           The index in the fileset (which regions of interest)
+    :param normalized:  Is the set to be normalized? Default is False
+    :return:            A single RegionsOfInterest object
+    :rtype:             RegionsOfInterest
+    """
+    files = get_file_list()
+    normalized_file = get_file_list(True)
+    return RegionsOfInterest(files[i], normalizing_path=normalized_file[i], normalize=normalized)
+
+
 def export_to_pickle():
     """
         Exports all the rois to their own pickled file

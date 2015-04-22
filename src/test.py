@@ -3,7 +3,9 @@ __author__ = 'Sindre Nistad'
 
 from RegionOfInterest.regions_of_interest import RegionsOfInterest
 from Classifier.neural_network import ClassificationNet
-from Database.database import create_database
+
+from RegionOfInterest.export import get_file_list, roi_to_database, get_roi
+from Database.database_definition import create_database
 
 
 def run():
@@ -15,14 +17,16 @@ def run():
     # t = [folder + targets[0] + extension, folder + targets[1] + extension]
     #merge_roi_files(t)
 
-    # files = get_file_list()
-    #normalized_files = get_file_list(True)
-    #roi_master_r19 = RegionsOfInterest(files[0], normalizing_path=normalized_files[0], normalize=False)
+    files = get_file_list()
+    normalized_files = get_file_list(True)
+    roi_master_r19 = RegionsOfInterest(files[0], normalizing_path=normalized_files[0], normalize=False)
 
     #print roi_master_r19.standard_deviations
 
     # roi_master_r19.save_to_csv(";", "../master_r19.csv")
-    create_database(False, True)
+    create_database(True, create_tables=True)
+    roi_to_database(roi_master_r19)
+    pass
 
 
 def run_neural_network(i, mode='guass', target=None, neigborhood_size=3,
@@ -65,10 +69,7 @@ def run_neural_network(i, mode='guass', target=None, neigborhood_size=3,
     if targets_background_ration is None:
         targets_background_ration = [1., 1.]
 
-    target_data_set = targets[i]
-    path = folder + target_data_set + extension
-    normalized_path = folder + normalized + target_data_set + extension
-    roi = RegionsOfInterest(path, normalizing_path=normalized_path, mode=mode)
+    roi = get_roi(i, normalized=False)
     roi.set_aggregate(True)
     net = ClassificationNet(roi, target, neigborhood_size=neigborhood_size,
                             targets_background_ration=targets_background_ration, hidden_ratio=hidden_ratio)
