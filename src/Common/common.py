@@ -235,3 +235,25 @@ def list_to_string(l, delimiter=','):
     s = "".join([str(itm) + delimiter for itm in l])
     s = s[:-2]
     return s
+
+
+def get_one_indexed(i):
+    """
+        Adds one (1) to the argument, so it is readable when adding one to change indexing system
+    :param i:   a 0-index
+    :type i:    int
+    :return:    i + 1
+    :rtype:     int
+    """
+    return i + 1
+
+
+def get_zero_index(i):
+    """
+        Subtracts one (1) to the argument, so it is readable when adding one to change indexing system
+    :param i:   a 1-index
+    :type i:    int
+    :return:    i - 1
+    :rtype:     int
+    """
+    return i - 1

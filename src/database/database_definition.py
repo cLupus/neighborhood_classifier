@@ -16,10 +16,13 @@ class Wavelengths(db.Entity):
     """Where the information about a specific band/or wavelength reside; band number,
     and what wavelength, along with the unit of measurement, e.g. 700 nm."""
     id = PrimaryKey(int, auto=True)
-    name = Required(str, 30, unique=True, sql_type="varchar")
+    name = Required(str, 30, sql_type="varchar")
     unit = Required(str, 30, sql_type="varchar")
     wavelength = Required(float)
+    datasets = Set("Dataset")
+    band_nr = Required(int)
     spectra = Set("Spectrum")
+    composite_key(name, band_nr)
 
 
 class Point(db.Entity):
@@ -75,8 +78,9 @@ class Dataset(db.Entity):
     """The data set from which all the regions comes from."""
     id = PrimaryKey(int, auto=True)
     name = Required(str, 200, unique=True, sql_type="varchar")
-    regions = Set(Region)
-    norms = Set(Norm)
+    regions = Set(Region, cascade_delete=True)
+    norms = Set(Norm, cascade_delete=True)
+    wavelengths = Set(Wavelengths)
 
 
 def bind(create_tables=False):
@@ -133,6 +137,18 @@ def create_database(overwrite=False, debug_sql=True, check_tables=True, create_t
     sql_debug(debug_sql)
     bind_database(check_tables, create_tables, **DATABASE)
     if overwrite:
-        db.drop_all_tables(True)
+        drop_tables(True)
     db.create_tables(check_tables=check_tables)
     return db
+
+
+def drop_tables(are_you_sure=False):
+    """
+        Drops all the data in the database!
+    :param are_you_sure:    Are you really sure you want to drop the database? Added, so that dropping the database
+                            does not happen by accident.
+    :type are_you_sure:     bool
+    """
+    if are_you_sure:
+        db.drop_all_tables(with_all_data=True)
+        db.drop_all_tables()

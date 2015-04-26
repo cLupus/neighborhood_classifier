@@ -1,7 +1,13 @@
-__author__ = 'Sindre Nistad'
+# -*- coding: utf-8 -*-
+"""
+Misc. functions for exporting, and importing data to the different structures used in this project.
+"""
+from __future__ import division
 
 from RegionOfInterest.regions_of_interest import RegionsOfInterest
-from Database.database import roi_to_database
+from Database.connector import roi_to_database
+
+__author__ = 'Sindre Nistad'
 
 
 def get_file_list(normalized=False):
@@ -23,11 +29,13 @@ def get_file_list(normalized=False):
         return ["".join([prefix, itm, extension]) for itm in targets]
 
 
-def get_all_rois(normalized=True):
+def get_all_rois(normalized=True, read_data=False):
     """
         Makes all the regions of interest from the different files, and returns them in a list
     :param normalized:  Toggles whether or not the output is normalized or not. Default is True.
+    :param read_data:   Toggles whether or not the data will be loaded at creation or not.
     :type normalized:   bool
+    :type read_data:    bool
     :return:            All the regions of interest that are given by the files.
     :rtype:             list of [RegionsOfInterest]
     """
@@ -36,7 +44,8 @@ def get_all_rois(normalized=True):
     return [
         RegionsOfInterest(files[i],
                           normalizing_path=normalized_file[i],
-                          normalize=normalized)
+                          normalize=normalized,
+                          read_data=read_data)
         for i in range(len(files))
     ]
 
@@ -83,8 +92,21 @@ def export_to_csv(delimiter=",", normalized=True):
         roi.save_to_csv(delimiter)
 
 
-def export_to_potgres():
-    for roi in get_all_rois():
-        roi_to_database(roi)
+def export_to_potgres(debug=False):
+    if debug:
+        n = len(get_all_rois(read_data=False))
+        i = 0
+    for roi in get_all_rois(read_data=False):
+        print("Now loading the dataset located at " + roi.path)
+        roi.load_data()
+        print("Loading complete. Now exporting to database.")
+        roi_to_database(roi, debug=debug)
+        if debug:
+            i += 1
+            print("NOW " + str(i / n * 100) + "% COMPLETE")
+        print("Data committed to the database.")
+        print("Deleting region to save memory; these files can be huge")
+        del roi
+
     # TODO: Implement
     pass

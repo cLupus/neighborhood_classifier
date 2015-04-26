@@ -63,9 +63,10 @@ ASCII roi/*
 *.nn
 *.profile*
 *params*
+*.txt
 
 # Secret stuff
-settings.py
+DATABASE.txt
 
 # CSV/EXCEL
 *.csv

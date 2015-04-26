@@ -86,6 +86,14 @@ class RegionsOfInterest(object):
         if normalizing_path is not None:
             self._load_normalizing_data(normalizing_path, mode, normalize)
 
+    def load_data(self):
+        """
+            Loads the data from the given path
+        :return:    None
+        :rtype:     None
+        """
+        self._load_data_from_file()
+
     def _load_data_from_file(self):
         """
             Loads the region of interest data from the given file, and adds it to the fields of this object.

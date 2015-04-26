@@ -4,7 +4,7 @@ __author__ = 'Sindre Nistad'
 from RegionOfInterest.regions_of_interest import RegionsOfInterest
 from Classifier.neural_network import ClassificationNet
 
-from RegionOfInterest.export import get_file_list, roi_to_database, get_roi
+from RegionOfInterest.export import get_file_list, get_roi, export_to_potgres
 from Database.database_definition import create_database
 
 
@@ -24,8 +24,10 @@ def run():
     #print roi_master_r19.standard_deviations
 
     # roi_master_r19.save_to_csv(";", "../master_r19.csv")
-    create_database(True, create_tables=True)
-    roi_to_database(roi_master_r19)
+    create_database(overwrite=True, create_tables=True)
+    # bind()
+    #roi_to_database(roi_master_r19)
+    export_to_potgres(debug=True)
     pass
 
 
