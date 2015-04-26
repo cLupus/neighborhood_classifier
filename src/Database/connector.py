@@ -10,7 +10,7 @@ from pony.orm import db_session
 
 from Database.database_definition import db, Color, Dataset, Norm, Point, Region, Spectrum, Wavelengths, bind
 from Common.parameters import WAVELENGTHS
-from Common.common import get_one_indexed
+from Common.common import get_one_indexed, get_zero_index, is_in_name
 
 
 __author__ = 'Sindre Nistad'
@@ -53,35 +53,41 @@ def roi_to_database(roi, add_wavelengths=False, debug=False):
     # Splits the path by '/', and then '.', and then extracts the name
     dataset_name = roi.path.split('/')[-1].split('.')[0]
     # :type : str
-    if dataset_name in pny.select(d.name for d in Dataset):
-        return
     spectral_type = ""
     if add_wavelengths:
-        if 'AVIRIS' in dataset_name.upper():
+        if is_in_name('AVIRIS', roi.path):
             spectral_type = 'AVIRIS'
-        elif 'MASTER' in dataset_name.upper():
+        elif is_in_name('MASTER', roi.path):
             spectral_type = 'MASTER'
-    dataset = add_dataset(dataset_name, spectral_type)
-    add_normalizing(roi, dataset)
-    if debug:
-        i = 0
-        n = len(roi.get_all())
-    for roi in roi.get_all():
-        region = add_region(roi, dataset)
+    if dataset_name not in pny.select(d.name for d in Dataset):
+        dataset = add_dataset(dataset_name, spectral_type)
+        add_normalizing(roi, dataset)
         if debug:
-            i += 1
-            print(region.name + " " + str(i/n * 100) + "% COMPLETE")
-        for point in roi.points:
-            # :type point: RegionOfInterest.region.Point
-            p = add_point(region, point)
-            add_spectrum(p, point.bands)
-    if add_wavelengths:
+            i = 0
+            n = len(roi.get_all())
+        for roi in roi.get_all():
+            region = add_region(roi, dataset)
+            if debug:
+                i += 1
+                print(region.name + " " + str(i / n * 100) + "% COMPLETE")
+            for point in roi.points:
+                # :type point: RegionOfInterest.region.Point
+                p = add_point(region, point)
+                add_spectrum(p, point.bands)
         if debug:
-            print("Adding wavelength information to all points of the dataset")
-        add_wavelength_to_points(spectral_type, dataset)
-    if debug:
-        print("Committing changes to the database.")
-    db.commit()
+            print("Committing points to the database.")
+        db.commit()
+    else:
+        dataset = pny.get(d for d in Dataset if d.name == dataset_name)
+    if not pny.exists(wvl for wvl in Wavelengths if dataset in wvl.datasets):
+        if add_wavelengths:
+            if debug:
+                print("Adding wavelength information to all points of the dataset")
+                print("Spectral type is: " + spectral_type)
+            add_wavelength_to_points(spectral_type, dataset)
+        if debug:
+            print("Committing changes to the database.")
+        db.commit()
     if debug:
         print("Commit complete.")
 
@@ -156,26 +162,33 @@ def add_wavelength_to_dataset(dataset, spectral_type):
     """
     wavelengths = WAVELENGTHS[spectral_type]['wavelengths']
     unit = WAVELENGTHS[spectral_type]['unit']
-    for i in range(len(wavelengths)):
-        wavelength = wavelengths[i]
-        Wavelengths(name=spectral_type,
-                    unit=unit,
-                    wavelength=wavelength,
-                    datasets=dataset,
-                    band_nr=get_one_indexed(i))
+    if pny.exists(wvl for wvl in Wavelengths if wvl.name == dataset.name):
+        # Wavelengths already exists, so we want to add the dataset to the wavelengths
+        for wavelength in pny.select(wvl for wvl in Wavelengths if wvl.name == dataset.name):
+            wavelength.datasets.add(dataset)
+    else:
+        for i in range(len(wavelengths)):
+            wavelength = wavelengths[i]
+            Wavelengths(name=spectral_type,
+                        unit=unit,
+                        wavelength=wavelength,
+                        datasets=dataset,
+                        band_nr=get_one_indexed(i))
 
 
 @db_session
 def add_wavelength_to_points(spectral_type, dataset):
     """
         Adds the wavelength
-    :type spectral_type: str
+    :type spectral_type:    str
+    :type dataset:          Dataset
     :return:
     """
     wavelengths = pny.select(w for w in Wavelengths if w.name == spectral_type).order_by(Wavelengths.band_nr)
     wavelengths = wavelengths[:]  # Make it into a list
-    for spectrum in pny.select(s for s in Spectrum if s.point.region.dataset == dataset):
-        spectrum.wavelength = wavelengths[spectrum.band_nr]
+    # TODO: Implement directly in SQL; hopefully will be much faster...
+    for spectrum in pny.select(s for s in Spectrum if s.point.region.dataset == dataset)[:]:
+        spectrum.wavelength = wavelengths[get_zero_index(spectrum.band_nr)]
 
 @db_session
 def add_normalizing(rois, dataset):

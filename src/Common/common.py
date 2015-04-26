@@ -257,3 +257,16 @@ def get_zero_index(i):
     :rtype:     int
     """
     return i - 1
+
+
+def is_in_name(sub_string, string):
+    """
+        Checks if the substring is contained in the (long) string. Ignores case.
+    :param sub_string:
+    :param string:
+    :type sub_string:   str
+    :type string:       str
+    :return:            True if the string contains the substring. False otherwise.
+    :rtype:             bool
+    """
+    return sub_string.lower() in string.lower()

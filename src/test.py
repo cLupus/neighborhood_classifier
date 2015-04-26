@@ -5,7 +5,7 @@ from RegionOfInterest.regions_of_interest import RegionsOfInterest
 from Classifier.neural_network import ClassificationNet
 
 from RegionOfInterest.export import get_file_list, get_roi, export_to_potgres
-from Database.database_definition import create_database
+from Database.database_definition import bind
 
 
 def run():
@@ -20,14 +20,15 @@ def run():
     files = get_file_list()
     normalized_files = get_file_list(True)
     roi_master_r19 = RegionsOfInterest(files[0], normalizing_path=normalized_files[0], normalize=False)
-
+    # aviris_r19 = RegionsOfInterest(files[1], normalizing_path=normalized_files[0])
     #print roi_master_r19.standard_deviations
 
     # roi_master_r19.save_to_csv(";", "../master_r19.csv")
-    create_database(overwrite=False, create_tables=True)
-    # bind()
+    # create_database(overwrite=False, create_tables=True)
+    bind()
     #roi_to_database(roi_master_r19)
     export_to_potgres(debug=True, add_wavelengths=True)
+    #add_wavelength_to_dataset()
     pass
 
 

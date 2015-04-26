@@ -16,12 +16,14 @@ def get_file_list(normalized=False):
     :param normalized:
     :return:
     """
-    targets = ['master_r19_7_5_emissivity_sub', 'sb_r19_sub_sub_corrected', 'sb_r20_2011_rfl_sub',
-               'sb_r21_sub_sub_corrected', 'sb_r22_sub_sub_corrected_colored']
-    #prefix = '/Volumes/Kingston/Geog214a_data/ASCII roi/'
+    master = ['master_r19_7_5_emissivity_sub']
+    aviris = ['sb_r19_sub_sub_corrected', 'sb_r20_2011_rfl_sub',
+              'sb_r21_sub_sub_corrected', 'sb_r22_sub_sub_corrected_colored']
+    aviris_extension = '.aviris'
+    targets = master
+    targets.extend([a + aviris_extension for a in aviris])
     extension = '.txt'
     prefix = '/Users/sindrenistad/Dropbox/workspace/geog214a/neighborhood_classifier/ASCII roi/'
-    # prefix = '../ASCII roi/'
     norm = 'normalizing/'
     if normalized:
         return ["".join([prefix, norm, itm, extension]) for itm in targets]
