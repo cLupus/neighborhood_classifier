@@ -12,6 +12,7 @@ from Database.database_definition import db, Color, Dataset, Norm, Point, Region
 from Common.parameters import WAVELENGTHS
 from Common.common import get_one_indexed
 
+
 __author__ = 'Sindre Nistad'
 
 
@@ -41,7 +42,7 @@ def roi_to_database(roi, add_wavelengths=False, debug=False):
         Writes the content of a region of interest to the database
     :param roi:             The region of interest to be written to the database
     :param add_wavelengths: Toggle whether or not information about wavelengths is to be added. Default is False,
-                            as this is rather slow, and strictly speaking, not necessary.
+                            as it takes quite a while, and is not strictly necessary.
     :param debug:           Toggle whether or not debug information is to be written to the console. Default is False
     :type roi:              RegionsOfInterest
     :type add_wavelengths:  bool
@@ -73,11 +74,11 @@ def roi_to_database(roi, add_wavelengths=False, debug=False):
         for point in roi.points:
             # :type point: RegionOfInterest.region.Point
             p = add_point(region, point)
-            add_spectrum(p, point.bands, spectral_type)
+            add_spectrum(p, point.bands)
     if add_wavelengths:
         if debug:
             print("Adding wavelength information to all points of the dataset")
-        add_wavelength_to_points(spectral_type)
+        add_wavelength_to_points(spectral_type, dataset)
     if debug:
         print("Committing changes to the database.")
     db.commit()
@@ -145,6 +146,14 @@ def add_spectrum(point, bands):
 
 @db_session
 def add_wavelength_to_dataset(dataset, spectral_type):
+    """
+        Adds information about the spectral bands for the given dataset
+    :param dataset:         The dataset to which the info is to be added.
+    :param spectral_type:   What kind of spectra is it? (e.g. MASTER, or AVIRIS)
+    :type dataset:          Database.database_definition.Dataset
+    :type spectral_type:    str
+    :return:
+    """
     wavelengths = WAVELENGTHS[spectral_type]['wavelengths']
     unit = WAVELENGTHS[spectral_type]['unit']
     for i in range(len(wavelengths)):
@@ -157,10 +166,15 @@ def add_wavelength_to_dataset(dataset, spectral_type):
 
 
 @db_session
-def add_wavelength_to_points(spectral_type):
+def add_wavelength_to_points(spectral_type, dataset):
+    """
+        Adds the wavelength
+    :type spectral_type: str
+    :return:
+    """
     wavelengths = pny.select(w for w in Wavelengths if w.name == spectral_type).order_by(Wavelengths.band_nr)
     wavelengths = wavelengths[:]  # Make it into a list
-    for spectrum in pny.select(s for s in Spectrum)[:]:
+    for spectrum in pny.select(s for s in Spectrum if s.point.region.dataset == dataset):
         spectrum.wavelength = wavelengths[spectrum.band_nr]
 
 @db_session
@@ -198,6 +212,16 @@ def add_dataset(name, spectral_type=""):
     if spectral_type:
         add_wavelength_to_dataset(ds, spectral_type)
     return ds
+
+
+"""
+Methods for deleting stuff
+"""
+
+
+def remove_region(name, subname):
+    pass
+    # db.entities.
 
 
 """

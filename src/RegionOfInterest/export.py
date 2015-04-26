@@ -92,7 +92,7 @@ def export_to_csv(delimiter=",", normalized=True):
         roi.save_to_csv(delimiter)
 
 
-def export_to_potgres(debug=False):
+def export_to_potgres(add_wavelengths=False, debug=False):
     if debug:
         n = len(get_all_rois(read_data=False))
         i = 0
@@ -100,7 +100,7 @@ def export_to_potgres(debug=False):
         print("Now loading the dataset located at " + roi.path)
         roi.load_data()
         print("Loading complete. Now exporting to database.")
-        roi_to_database(roi, debug=debug)
+        roi_to_database(roi, add_wavelengths=add_wavelengths, debug=debug)
         if debug:
             i += 1
             print("NOW " + str(i / n * 100) + "% COMPLETE")

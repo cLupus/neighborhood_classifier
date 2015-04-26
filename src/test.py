@@ -24,10 +24,10 @@ def run():
     #print roi_master_r19.standard_deviations
 
     # roi_master_r19.save_to_csv(";", "../master_r19.csv")
-    create_database(overwrite=True, create_tables=True)
+    create_database(overwrite=False, create_tables=True)
     # bind()
     #roi_to_database(roi_master_r19)
-    export_to_potgres(debug=True)
+    export_to_potgres(debug=True, add_wavelengths=True)
     pass
 
 
