@@ -52,6 +52,7 @@ class Region(db.Entity):
     sub_name = Optional(str, 60, sql_type="varchar")
     color = Optional("Color")
     points = Set(Point)
+    composite_key(dataset, name, sub_name)
 
 
 class Color(db.Entity):
@@ -78,6 +79,7 @@ class Dataset(db.Entity):
     """The data set from which all the regions comes from."""
     id = PrimaryKey(int, auto=True)
     name = Required(str, 200, unique=True, sql_type="varchar")
+    type = Required(str, 10, sql_type="varchar")
     regions = Set(Region, cascade_delete=True)
     norms = Set(Norm, cascade_delete=True)
     wavelengths = Set(Wavelengths)

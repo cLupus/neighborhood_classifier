@@ -76,6 +76,8 @@ class RegionsOfInterest(object):
         """ :type : list[float] """
         self.standard_deviations = []
         """ :type : list[float] """
+        self.is_loaded = False
+        """ :type : bool """
 
         if read_data:
             ending = self.path.split('.')[-1]
@@ -93,6 +95,7 @@ class RegionsOfInterest(object):
         :rtype:     None
         """
         self._load_data_from_file()
+        self.is_loaded = True
 
     def _load_data_from_file(self):
         """
@@ -319,12 +322,16 @@ class RegionsOfInterest(object):
                 for i in range(self.num_bands):
                     point.bands[i] = point.bands[i] * self.standard_deviations[i] + self.means[i]
 
-    def get_all(self):
+    def get_all(self, force_load=False):
         """
             A method to get all regions of interest as a list of regions
-            :return:    A list of the regions of interest that are stored in this object.
-            :rtype:     List of [ROI]
+        :param force_load:  Toggles whether or not the data must be loaded if it is not already.
+        :type force_load:   bool
+        :return:            A list of the regions of interest that are stored in this object.
+        :rtype:             List of [ROI]
         """
+        if force_load and not self.is_loaded:
+            self.load_data()
         roi_list = []
         for key in self.rois.keys():
             for sub_key in self.rois[key]:
