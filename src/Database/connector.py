@@ -11,7 +11,7 @@ from pony.orm import db_session
 from Database.database_definition import db, Color, Dataset, Norm, Point, Region, Spectrum, Wavelengths, bind
 from Common.parameters import WAVELENGTHS
 from Common.common import get_one_indexed, is_in_name
-from RegionOfInterest.region import Point as ROIPoint
+from RegionOfInterest.region import BasePoint as ROIPoint
 
 
 __author__ = 'Sindre Nistad'
@@ -369,16 +369,15 @@ def get_nearest_neighbors_to_point(point, k, dataset, ignore_dataset=False, incl
                             is True.
     :param roi_point:       Toggles whether or not the list that will be returned is a list of ROIPoints,
                             or Pony Points. Default is ROIPoints.
-    :type point:            RegionOfInterest.region.Point | Point
+    :type point:            RegionOfInterest.region.Point | Point | RegionOfInterest.region.BasePoint
     :type k:                int
     :type dataset:          list of [str] | str
     :type ignore_dataset:   bool
     :type include_point:    bool
     :return:                List of points sorted in ascending order by how close they are to the given point.
-    :rtype:                 list of [RegionOfInterest.region.Point | Point]
+    :rtype:                 list of [RegionOfInterest.region.BasePoint | Point]
     """
     if isinstance(point, Point):
-        # TODO: Implement getting long, lat
         longitude = point.long_lat[0]
         latitude = point.long_lat[1]
     elif isinstance(point, ROIPoint):
@@ -421,9 +420,12 @@ def get_nearest_neighbors_to_point(point, k, dataset, ignore_dataset=False, incl
 
 def query_to_point_list(query):
     """
-        Takes a query of points (id, region, long_lat
-    :param query:
-    :return:
+        Takes a query of points (id, region, long_lat), or everything from point, gets the spectrum for each point,
+        and then creates a list of BasePoints, or Points
+    :param query:   The query, which has selected (id, region, long_lat) for the points.
+    :param
+    :return:        List of BasePoints/Points with their spectrum.
+    :rtype:         list of [RegionOfInterest.region.BasePoint | RegionOfInterest.region.Point]
     """
     # TODO: Implement
     pass
