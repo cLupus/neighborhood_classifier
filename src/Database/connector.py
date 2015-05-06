@@ -11,6 +11,7 @@ from pony.orm import db_session
 from Database.database_definition import db, Color, Dataset, Norm, Point, Region, Spectrum, Wavelengths, bind
 from Common.parameters import WAVELENGTHS
 from Common.common import get_one_indexed, is_in_name
+from RegionOfInterest.region import Point as ROIPoint
 
 
 __author__ = 'Sindre Nistad'
@@ -313,6 +314,7 @@ Methods for getting stuff from the database
 
 
 def get_points_from_region(region, dataset, k=0):
+    # TODO: Implement
     """
         Returns all points, and its k nearest neighbors that are in a given region (can be general (only name),
         or specific (includes sub name). If k is not set explicitly, only the points themselves will be returned. k does
@@ -330,25 +332,133 @@ def get_points_from_region(region, dataset, k=0):
     :return:        List of list of points, with their neighbors
     :rtype:         list of [list of [RegionOfInterest.region.Point]]
     """
+    # Taking care of the names
     name = region.split('_')
     if '_' in region:
         # The region has a sub name, and we want to an extra constraint to the search
         sub_name = name[1]
         name = name[0]
-        sub_name_query = " AND sub_region = " + "' " + sub_name + " '"
     else:
         # The given name does not contain a sub-name.
         name = name[0]
-        sub_name_query = ""
+
     if dataset == "":
-        dataset_query = ""
-        dataset_string = ""
+        # Give all from every dataset/collection
+        pass
     elif 'MASTER' in dataset or 'AVIRIS' in dataset:
-        dataset_query = " AND region.dataset = dataset.id"
-        dataset_string = ", dataset"
-    select_query = "SELECT * FROM spectrum, point, region" + dataset_string
-    join_query = "WHERE spectrum.point = point.id AND point.region = region.id " + dataset_query
-    name_query = "AND region.name = '" + name + "' " + sub_name_query
+        # Give all points that are from the MASTER, and/or AVIRIS datasets
+        pass
+    else:
+        # Give the points in the given dataset
+        pass
+        # TODO: Implement getting list of k-nearest neighbors
+
+
+def get_nearest_neighbors_to_point(point, k, dataset, ignore_dataset=False, include_point=True, roi_point=True):
+    """
+        Returns the k-nearest neighbors for the given point. (This method will return k + 1 points in a
+        list, as the given point will be included, unless include_point is set to False)
+        If the ignore_dataset flag is set to True, we will not care about the points belonging to the same dataset.
+    :param point:           The point we are interested in finding nearest neighbors to.
+    :param k:               The number of nearest neighbors we want to find.
+    :param dataset:         The dataset(s) we want to get the points from. Can be None, as it is not necessary when
+                            ignore_dataset is True, but must be specified if ignore_dataset is True.
+    :param ignore_dataset:  Toggles whether or not we will consider the dataset a point belongs to, when searching for
+                            nearest neighbor, e.g. ignore to which sensor the data came from. Default is False.
+    :param include_point:   Toggles whether or not the given point is to be included in the final list or not. Default
+                            is True.
+    :param roi_point:       Toggles whether or not the list that will be returned is a list of ROIPoints,
+                            or Pony Points. Default is ROIPoints.
+    :type point:            RegionOfInterest.region.Point | Point
+    :type k:                int
+    :type dataset:          list of [str] | str
+    :type ignore_dataset:   bool
+    :type include_point:    bool
+    :return:                List of points sorted in ascending order by how close they are to the given point.
+    :rtype:                 list of [RegionOfInterest.region.Point | Point]
+    """
+    if isinstance(point, Point):
+        # TODO: Implement getting long, lat
+        longitude = point.long_lat[0]
+        latitude = point.long_lat[1]
+    elif isinstance(point, ROIPoint):
+        longitude = point.longitude
+        latitude = point.latitude
+    else:
+        raise TypeError("The type for point is not supported. The type of point is ", type(point))
+    select_from_sql = """
+                    SELECT *
+                    FROM spectrum, point"""
+    order_by_query = "ORDER BY point.long_lat <-> '(" + str(longitude) + ", " + str(latitude) + ")'::point " \
+                                                                                                "LIMIT " + str(k) + ";"
+    if ignore_dataset:
+        sql = select_from_sql + " WHERE spectrum.point = point.id " + order_by_query
+    else:
+        if not isinstance(dataset, list):
+            dataset = [dataset]
+        dataset_sql = " AND ("
+        if 'MASTER' in dataset or 'AVIRIS' in dataset:
+            for elm in dataset:
+                dataset_sql += "dataset.type = '" + elm + "' or "
+            dataset_sql = dataset_sql[:-3]  # Removing the last 'or '
+            dataset_sql += ")"
+        else:
+            for elm in dataset:
+                dataset_sql += " dataset.name = '" + elm + "' or "
+            dataset_sql = dataset_sql[:-3]  # Removing the last 'or '
+            dataset_sql += ")"
+        sql = select_from_sql + ", dataset WHERE spectrum.point = point.id " + dataset_sql + order_by_query
+    query = db.execute(sql)
+    points = []
+    for elm in query:
+        if roi_point:
+            # TODO: Implement adding points to list
+            pass
+        pass
+        # TODO: Implement adding given point to list
+
+
+def query_to_point_list(query):
+    # TODO: Implement
+    pass
+
+
+def get_random_sample(area, number_of_samples, background=False):
+    """
+        Returns a random sample of number_of_samples points which lies in the given area (which may be regions, or a
+        specific region when given a sub-name; e.g. name_sub-name, or just name for the value of area. If background
+        is set to True, the resulting collection will be a random sample of anything but the given area.
+    :param area:                Name of the region we want the sample to be from (or not from). If the underscore
+                                character is in the name, it will be assumed as a sub-region,
+                                e.i. sub_name will be given.
+    :param number_of_samples:   The number of samples we want.
+    :param background:          Toggles whether or not the returned set is from the actual region, or from the
+                                'background' of that region, e.i. anything but that region.
+    :type area:                 str
+    :type number_of_samples:    int
+    :type background:           bool
+    :return:                    A list of points which constitutes a sample from the given region, or a list of points
+                                constitutes a sample from the background of that region.
+    :rtype:                     list of [RegionOfInterest.region.Point]
+    """
+    if '_' in area:
+        name = area.split('_')[0]
+        sub_name = area.split('_')[1]
+    else:
+        name = area
+        sub_name = ""
+    select_sql = "SELECT * FROM spectrum NATURAL JOIN point "
+    if background:
+        equal_operator = " != "
+    else:
+        equal_operator = " = "
+    where_sql = " WHERE point.name" + equal_operator + "'" + name + "'"
+    if sub_name != "":
+        where_sql += " AND point.sub_name" + equal_operator + "'" + sub_name + "'"
+    order_by_sql = " ORDER BY random() LIMIT " + str(number_of_samples) + ";"
+    sql = select_sql + where_sql + order_by_sql
+    query = db.execute(sql)
+    return query_to_point_list(query)
     pass
 
 

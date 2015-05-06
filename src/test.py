@@ -4,7 +4,7 @@ __author__ = 'Sindre Nistad'
 from RegionOfInterest.regions_of_interest import RegionsOfInterest
 from Classifier.neural_network import ClassificationNet
 
-from RegionOfInterest.export import get_file_list, get_roi, export_to_potgres
+from RegionOfInterest.export import get_file_list, get_roi
 from Database.database_definition import bind
 
 
@@ -28,8 +28,9 @@ def run():
     bind()
     # drop_tables(True)
     #roi_to_database(roi_master_r19)
-    export_to_potgres(debug=True, add_wavelengths=True, start_index=2, force_load=True)
+    # export_to_potgres(debug=True, add_wavelengths=True, start_index=2, force_load=True)
     #add_wavelength_to_dataset()
+
     pass
 
 
