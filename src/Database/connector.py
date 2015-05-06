@@ -312,6 +312,45 @@ Methods for getting stuff from the database
 # TODO
 
 
+def get_points_from_region(region, dataset, k=0):
+    """
+        Returns all points, and its k nearest neighbors that are in a given region (can be general (only name),
+        or specific (includes sub name). If k is not set explicitly, only the points themselves will be returned. k does
+        not include the point itself.
+        The dataset is a list, (or a single) data sets the points will be drawn from. If blank, or the list ['MASTER',
+        'AVIRIS'], it will return every point which has the given region as name. If one of then, then all points in the
+        region which are from the given spectrometer. A specific data set can also be specified, e.g. master_r19... in
+        which case, only points in the given data set will be returned. Returns a list of lists of points.
+    :param region:  The region points are taken from
+    :param dataset: The dataset(s) the points are part of
+    :param k:       The number of neighbors that are to be returned with the point. Default is 0; only the point itself.
+    :type region:   str
+    :type dataset:  list of [str]
+    :type k:        int
+    :return:        List of list of points, with their neighbors
+    :rtype:         list of [list of [RegionOfInterest.region.Point]]
+    """
+    name = region.split('_')
+    if '_' in region:
+        # The region has a sub name, and we want to an extra constraint to the search
+        sub_name = name[1]
+        name = name[0]
+        sub_name_query = " AND sub_region = " + "' " + sub_name + " '"
+    else:
+        # The given name does not contain a sub-name.
+        name = name[0]
+        sub_name_query = ""
+    if dataset == "":
+        dataset_query = ""
+        dataset_string = ""
+    elif 'MASTER' in dataset or 'AVIRIS' in dataset:
+        dataset_query = " AND region.dataset = dataset.id"
+        dataset_string = ", dataset"
+    select_query = "SELECT * FROM spectrum, point, region" + dataset_string
+    join_query = "WHERE spectrum.point = point.id AND point.region = region.id " + dataset_query
+    name_query = "AND region.name = '" + name + "' " + sub_name_query
+    pass
+
 
 def point_to_postgres_point(*args):
     """
