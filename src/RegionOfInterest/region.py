@@ -232,9 +232,51 @@ def select_params(mode='x-y'):
     return x_param, y_param
 
 
-class Point(object):
+class BasePoint(object):
     """
-    Stores the information (location) of a single point along with the spectral bands.
+    Stores the information (location) of a single point along with the spectral bands. This is a 'simple' point that
+    only has id, longitude, and latitude, as well as the spectrum
+    """
+
+    def __init__(self, identity, latitude, longitude, bands):
+        """
+            A object to hold, and organize the relevant information for a specific point in the data set.
+        :param identity:    An id, unique to the ROI polygon at creation in ENVI. Not used
+        :param latitude:    The absolute latitude of the point.
+        :param longitude:   The absolute longitude of the point.
+        :param bands:       A list of the different spectral bands for the point.
+        :type identity:     int
+        :type latitude:     float
+        :type longitude:    float
+        :type bands:        list[float]
+        :return:
+        """
+        self.identity = int(identity)
+        """ :type : int """
+        self.latitude = latitude
+        """ :type : float """
+        self.longitude = longitude
+        """ :type : float """
+        self.bands = bands
+        """ :type : list[float] """
+
+    def get_bands_as_string(self, delimiter=","):
+        """
+            Returns a single string of the value of all the bands in this point.
+        :param delimiter:   What character the values are separated by.
+        :type delimiter:    str
+        :return:            String of bands
+        :rtype:             str
+        """
+        return list_to_string(self.bands, delimiter)
+
+    def __len__(self):
+        return len(self.bands)
+
+
+class Point(BasePoint):
+    """
+    More specific information is stored, such as relative image location and such
     """
 
     def __init__(self, identity, x, y, map_x, map_y, latitude, longitude, bands):
@@ -258,8 +300,8 @@ class Point(object):
         :type bands:        list[float]
         :return:
         """
+        super(Point, self).__init__(identity, latitude, longitude, bands)
         self.identity = int(identity)
-        """ :type : int """
         self.X = int(x)
         """ :type : int """
         self.Y = int(y)
@@ -268,47 +310,5 @@ class Point(object):
         """ :type : float """
         self.map_Y = map_y
         """ :type : float """
-        self.latitude = latitude
-        """ :type : float """
-        self.longitude = longitude
-        """ :type : float """
-        self.bands = bands
-        """ :type : list[float] """
 
-    def get_bands_as_string(self, delimiter=","):
-        """
-            Returns a single string of the value of all the bands in this point.
-        :param delimiter:   What character the values are separated by.
-        :type delimiter:    str
-        :return:            String of bands
-        :rtype:             str
-        """
-        return list_to_string(self.bands, delimiter)
 
-    def get_value(self, val):
-        """
-            A get method for the region of interest
-        :param val:     The parameter one want from the ROI object. Can be 'id', 'X', 'Y', 'map_X', 'map_Y', 'latitude',
-                        'longitude', or 'bands'.
-        :return:
-        """
-        # This method is unnecessary...
-        if val == 'id' or val == 'identity':
-            return self.identity
-        elif val == 'X':
-            return self.X
-        elif val == 'Y':
-            return self.Y
-        elif val == 'map_X':
-            return self.map_X
-        elif val == 'map_Y':
-            return self.map_Y
-        elif val == 'latitude':
-            return self.latitude
-        elif val == 'longitude':
-            return self.longitude
-        elif val == 'bands':
-            return self.bands
-
-    def __len__(self):
-        return len(self.bands)

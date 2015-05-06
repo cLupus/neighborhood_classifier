@@ -387,12 +387,13 @@ def get_nearest_neighbors_to_point(point, k, dataset, ignore_dataset=False, incl
     else:
         raise TypeError("The type for point is not supported. The type of point is ", type(point))
     select_from_sql = """
-                    SELECT *
-                    FROM spectrum, point"""
+                    SELECT id, region, long_lat
+                    FROM point"""
     order_by_query = "ORDER BY point.long_lat <-> '(" + str(longitude) + ", " + str(latitude) + ")'::point " \
                                                                                                 "LIMIT " + str(k) + ";"
+    # FIXME: will return the k first BANDS of the point
     if ignore_dataset:
-        sql = select_from_sql + " WHERE spectrum.point = point.id " + order_by_query
+        sql = select_from_sql + order_by_query
     else:
         if not isinstance(dataset, list):
             dataset = [dataset]
@@ -407,7 +408,7 @@ def get_nearest_neighbors_to_point(point, k, dataset, ignore_dataset=False, incl
                 dataset_sql += " dataset.name = '" + elm + "' or "
             dataset_sql = dataset_sql[:-3]  # Removing the last 'or '
             dataset_sql += ")"
-        sql = select_from_sql + ", dataset WHERE spectrum.point = point.id " + dataset_sql + order_by_query
+        sql = select_from_sql + ", dataset WHERE " + dataset_sql + order_by_query
     query = db.execute(sql)
     points = []
     for elm in query:
@@ -419,6 +420,11 @@ def get_nearest_neighbors_to_point(point, k, dataset, ignore_dataset=False, incl
 
 
 def query_to_point_list(query):
+    """
+        Takes a query of points (id, region, long_lat
+    :param query:
+    :return:
+    """
     # TODO: Implement
     pass
 
@@ -447,15 +453,18 @@ def get_random_sample(area, number_of_samples, background=False):
     else:
         name = area
         sub_name = ""
-    select_sql = "SELECT * FROM spectrum NATURAL JOIN point "
+    select_sql = "SELECT * FROM spectrum NATURAL JOIN point NATURAL JOIN region "
+    # FIXME: Get spectrum later!
     if background:
         equal_operator = " != "
     else:
         equal_operator = " = "
-    where_sql = " WHERE point.name" + equal_operator + "'" + name + "'"
+    where_sql = " WHERE region.name" + equal_operator + "'" + name + "'"
     if sub_name != "":
-        where_sql += " AND point.sub_name" + equal_operator + "'" + sub_name + "'"
+        where_sql += " AND region.sub_name" + equal_operator + "'" + sub_name + "'"
     order_by_sql = " ORDER BY random() LIMIT " + str(number_of_samples) + ";"
+    # TODO: Fix the random selection; according to StackOverflow, this is VERY slow (sorts the entire table).
+    # There are remedies
     sql = select_sql + where_sql + order_by_sql
     query = db.execute(sql)
     return query_to_point_list(query)
@@ -477,3 +486,11 @@ def point_to_postgres_point(*args):
     s = s[:-2]  # Removes the last ", "
     return s
 
+
+def main():
+    """
+        The method that will run when the connector module is imported.
+        Makes sure that the database is bounded.
+    :return:
+    """
+    bind()
