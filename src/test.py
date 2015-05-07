@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 __author__ = 'Sindre Nistad'
 
-from RegionOfInterest.regions_of_interest import RegionsOfInterest
 from Classifier.neural_network import ClassificationNet
 
-from RegionOfInterest.export import get_file_list, get_roi
+from RegionOfInterest.export import get_roi
 from Database.database_definition import bind
+import Database.connector as conn
 
 
 def run():
@@ -17,9 +17,9 @@ def run():
     # t = [folder + targets[0] + extension, folder + targets[1] + extension]
     #merge_roi_files(t)
 
-    files = get_file_list()
-    normalized_files = get_file_list(True)
-    roi_master_r19 = RegionsOfInterest(files[0], normalizing_path=normalized_files[0], normalize=False)
+    # files = get_file_list()
+    # normalized_files = get_file_list(True)
+    # roi_master_r19 = RegionsOfInterest(files[0], normalizing_path=normalized_files[0], normalize=False)
     # aviris_r19 = RegionsOfInterest(files[1], normalizing_path=normalized_files[0])
     #print roi_master_r19.standard_deviations
 
@@ -30,7 +30,8 @@ def run():
     #roi_to_database(roi_master_r19)
     # export_to_potgres(debug=True, add_wavelengths=True, start_index=2, force_load=True)
     #add_wavelength_to_dataset()
-
+    sample = conn.get_random_sample('soil', 'AVIRIS', 100)
+    print(sample)
     pass
 
 

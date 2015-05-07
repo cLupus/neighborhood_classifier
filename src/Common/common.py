@@ -270,3 +270,37 @@ def is_in_name(sub_string, string):
     :rtype:             bool
     """
     return sub_string.lower() in string.lower()
+
+
+def normalize_min_max(data, minimums, maximums):
+    """
+        Normalizes the given data in a min-max fashion.
+        NB: The length of the different input parameters must be the same length.
+    :param data:        The data to be normalized
+    :param minimums:    The minimums for each 'band'
+    :param maximums:    The maximums for each 'band'
+    :type data:         list of [float]
+    :type minimums:     list of [float]
+    :type maximums:     list of [float]
+    :return:            A list of normalized data.
+    :rtype:             list of [float]
+    """
+    assert len(data) == len(minimums) == len(maximums)
+    return [(data[i] - minimums[i]) / (maximums[i] - minimums[i]) for i in range(len(data))]
+
+
+def normalize_gaussian(data, means, standard_deviations):
+    """
+        Normalizes the given data in a gaussian fashion.
+        NB: The length of the different input parameters must be the same length.
+    :param data:                The data to be normalized
+    :param means:               The mean value for each 'band'
+    :param standard_deviations: The standard deviation for each 'band'
+    :type data:                 list of [float]
+    :type means:                list of [float]
+    :type standard_deviations:  list of [float]
+    :return:                    A list of normalized data.
+    :rtype:                     list of [float]
+    """
+    assert len(data) == len(means) == len(standard_deviations)
+    return [(data[i] - means[i]) / standard_deviations[i] for i in range(len(data))]

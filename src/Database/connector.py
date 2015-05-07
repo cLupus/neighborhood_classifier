@@ -11,7 +11,7 @@ from pony.orm import db_session
 from Database.database_definition import db, Color, Dataset, Norm, Point, Region, Spectrum, Wavelengths, bind
 from Common.parameters import WAVELENGTHS
 from Common.common import get_one_indexed, is_in_name
-from RegionOfInterest.region import BasePoint as ROIPoint
+from RegionOfInterest.region import BasePoint
 
 
 __author__ = 'Sindre Nistad'
@@ -313,6 +313,7 @@ Methods for getting stuff from the database
 # TODO
 
 
+@db_session
 def get_points_from_region(region, dataset, k=0):
     # TODO: Implement
     """
@@ -354,6 +355,7 @@ def get_points_from_region(region, dataset, k=0):
         # TODO: Implement getting list of k-nearest neighbors
 
 
+@db_session
 def get_nearest_neighbors_to_point(point, k, dataset, ignore_dataset=False, include_point=True, roi_point=True):
     """
         Returns the k-nearest neighbors for the given point. (This method will return k + 1 points in a
@@ -380,13 +382,13 @@ def get_nearest_neighbors_to_point(point, k, dataset, ignore_dataset=False, incl
     if isinstance(point, Point):
         longitude = point.long_lat[0]
         latitude = point.long_lat[1]
-    elif isinstance(point, ROIPoint):
+    elif isinstance(point, BasePoint):
         longitude = point.longitude
         latitude = point.latitude
     else:
         raise TypeError("The type for point is not supported. The type of point is ", type(point))
     select_from_sql = """
-                    SELECT id, region, long_lat
+                    SELECT id, long_lat, region
                     FROM point"""
     order_by_query = "ORDER BY point.long_lat <-> '(" + str(longitude) + ", " + str(latitude) + ")'::point " \
                                                                                                 "LIMIT " + str(k) + ";"
@@ -394,19 +396,7 @@ def get_nearest_neighbors_to_point(point, k, dataset, ignore_dataset=False, incl
     if ignore_dataset:
         sql = select_from_sql + order_by_query
     else:
-        if not isinstance(dataset, list):
-            dataset = [dataset]
-        dataset_sql = " AND ("
-        if 'MASTER' in dataset or 'AVIRIS' in dataset:
-            for elm in dataset:
-                dataset_sql += "dataset.type = '" + elm + "' or "
-            dataset_sql = dataset_sql[:-3]  # Removing the last 'or '
-            dataset_sql += ")"
-        else:
-            for elm in dataset:
-                dataset_sql += " dataset.name = '" + elm + "' or "
-            dataset_sql = dataset_sql[:-3]  # Removing the last 'or '
-            dataset_sql += ")"
+        dataset_sql = dataset_to_string(dataset)
         sql = select_from_sql + ", dataset WHERE " + dataset_sql + order_by_query
     query = db.execute(sql)
     points = []
@@ -418,20 +408,54 @@ def get_nearest_neighbors_to_point(point, k, dataset, ignore_dataset=False, incl
         # TODO: Implement adding given point to list
 
 
-def query_to_point_list(query):
+def query_to_point_list(query, normalize_mode=""):
     """
-        Takes a query of points (id, region, long_lat), or everything from point, gets the spectrum for each point,
-        and then creates a list of BasePoints, or Points
-    :param query:   The query, which has selected (id, region, long_lat) for the points.
-    :param
-    :return:        List of BasePoints/Points with their spectrum.
-    :rtype:         list of [RegionOfInterest.region.BasePoint | RegionOfInterest.region.Point]
+        Takes a query of points (id, long_lat, region), or everything from point, gets the spectrum for each point,
+        and then creates a list of BasePoints, or Points.
+        If you want a point, the query has to have the following
+        (id, local_location, relative_location, long_lat, region)
+    :param query:           The query, which has selected (id, region, long_lat) for the points.
+    :param normalize_mode:  Is the data to be normalized? Can be blank "" -> No normalization. 'min-max' -> normalizes
+                            the data by minimums, and maximums (rescales). 'gaussian' -> (val - mean) / std.
+                            Default is no normalization.
+    :type query:            psycopg2.extensions.cursor
+    :type normalize_mode:   str
+    :return:                List of BasePoints/Points with their spectrum.
+    :rtype:                 list of [RegionOfInterest.region.BasePoint | RegionOfInterest.region.Point]
     """
     # TODO: Implement
+    points = []
+    for point_tuple in query:
+        points.append(get_point(point_tuple))
+    return points
+
+
+@db_session
+def get_point(point_tuple):
+    """
+        Takes a tuple, and makes it into a Point, or BasePoint depending on how long the tuple is. This method will also
+        get the spectrum for the given point as well
+    :param point_tuple: Tuple of numbers representing a point. May be (id, long_lat, region) or (id, local_location,
+                        relative_location, long_lat, region)
+    :type point_tuple:  tuple
+    :return:            A single point (Point or BasePoint) that is equivalent to the given tuple.
+    :rtype:             RegionsOfInterest.region.BasePoint | RegionsOfInterest.region.Point
+    """
+    point_id = point_tuple[0]
+    sql = "SELECT value FROM spectrum WHERE point = " + str(point_id) + " ORDER BY band_nr;"
+    query = db.execute(sql)
+    bands = [value[0] for value in query]
+    if len(point_tuple) == 3:
+        long_lat = eval(point_tuple[1])
+        longitude = long_lat[0]
+        latitude = long_lat[1]
+        region = point_tuple[2]
+        return BasePoint(point_id, latitude, longitude, bands)
     pass
 
 
-def get_random_sample(area, number_of_samples, background=False):
+@db_session
+def get_random_sample(area, dataset, number_of_samples, background=False):
     """
         Returns a random sample of number_of_samples points which lies in the given area (which may be regions, or a
         specific region when given a sub-name; e.g. name_sub-name, or just name for the value of area. If background
@@ -439,38 +463,49 @@ def get_random_sample(area, number_of_samples, background=False):
     :param area:                Name of the region we want the sample to be from (or not from). If the underscore
                                 character is in the name, it will be assumed as a sub-region,
                                 e.i. sub_name will be given.
+    :param dataset:             The dataset to which the points we want to sample from belong. This can be the empty
+                                string, in which case, we cont care about the dataset. It can also be an array of
+                                datasets, and which case the points can be from any of them.
     :param number_of_samples:   The number of samples we want.
     :param background:          Toggles whether or not the returned set is from the actual region, or from the
                                 'background' of that region, e.i. anything but that region.
     :type area:                 str
+    :type dataset:              str | list of [str]
     :type number_of_samples:    int
     :type background:           bool
     :return:                    A list of points which constitutes a sample from the given region, or a list of points
                                 constitutes a sample from the background of that region.
     :rtype:                     list of [RegionOfInterest.region.Point]
     """
+    # Splitting the area-name into (general) name, and sub name
     if '_' in area:
         name = area.split('_')[0]
         sub_name = area.split('_')[1]
     else:
         name = area
         sub_name = ""
-    select_sql = "SELECT * FROM spectrum NATURAL JOIN point NATURAL JOIN region "
-    # FIXME: Get spectrum later!
+
+    # Writing the SQL query
+    select_sql = "SELECT point.id, long_lat, point.region FROM point, region "
+    if dataset != "":
+        select_sql += ", dataset "
+        dataset_sql = dataset_to_string(dataset)
+    else:
+        dataset_sql = ""
     if background:
+        # Are we sampling the background or not?
         equal_operator = " != "
     else:
         equal_operator = " = "
-    where_sql = " WHERE region.name" + equal_operator + "'" + name + "'"
+    where_sql = " WHERE point.region = region.id AND region.name" + equal_operator + "'" + name + "'"
     if sub_name != "":
         where_sql += " AND region.sub_name" + equal_operator + "'" + sub_name + "'"
     order_by_sql = " ORDER BY random() LIMIT " + str(number_of_samples) + ";"
     # TODO: Fix the random selection; according to StackOverflow, this is VERY slow (sorts the entire table).
     # There are remedies
-    sql = select_sql + where_sql + order_by_sql
+    sql = select_sql + where_sql + dataset_sql + order_by_sql
     query = db.execute(sql)
     return query_to_point_list(query)
-    pass
 
 
 def point_to_postgres_point(*args):
@@ -489,10 +524,39 @@ def point_to_postgres_point(*args):
     return s
 
 
-def main():
+def dataset_to_string(dataset):
     """
-        The method that will run when the connector module is imported.
-        Makes sure that the database is bounded.
-    :return:
+        A method that takes a single dataset, or a list of datasets, and converts it into a SQL clause:
+        'AND (dataset[0] OR dataset[1] OR ... OR dataset[n-1])'. The datasets can be the full name of the dataset
+        or it can be the type, e.g. MASTER, or AVIRIS, or a mixture of the two.
+    :param dataset: A single dataset, or a list of datasets that we want to include in a query.
+    :type dataset:  str | list of [str]
+    :return:        A single string of the form AND (dataset.name = dataset[0] OR ... OR dataset.name = dataset[n-1]) if
+                    the given string has only dataset-names in it, or it will return a single string of the form
+                    AND (dataset.type = dataset[0] OR ... OR dataset.type = dataset[n-1]) if the datasets have the word
+                    'MASTER' or 'AVIRIS' in it. If there is a combination of the two, a combination will be returned.
+    :rtype:         str
     """
-    bind()
+    assert dataset != ""
+    assert dataset != []
+
+    if not isinstance(dataset, list):
+        dataset = [dataset]
+    dataset_sql = " AND ("
+    for elm in dataset:
+        if 'MASTER' in dataset or 'AVIRIS' in elm:
+            dataset_sql += "dataset.type = '"
+        else:
+            dataset_sql += " dataset.name = '"
+        dataset_sql += elm + "' OR "
+    dataset_sql = dataset_sql[:-3]  # Removing the last 'or '
+    dataset_sql += ')'
+    return dataset_sql
+
+    # def main():
+    # """
+    #         The method that will run when the connector module is imported.
+    #         Makes sure that the database is bounded.
+    #     :return:
+    #     """
+    #     bind()
