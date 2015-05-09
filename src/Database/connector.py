@@ -403,7 +403,7 @@ def select_sql_point(select_criteria=1):
 
 @db_session
 def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="min-max",
-                                   ignore_dataset=False, include_point=True, roi_point=True, select_criteria=3):
+                                   ignore_dataset=False, select_criteria=3):
     """
         Returns the k-nearest neighbors for the given point. (This method will return k + 1 points in a
         list, as the given point will be included, unless include_point is set to False)
@@ -417,10 +417,6 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="min-max",
     :param ignore_dataset:  Toggles whether or not we will consider the dataset a point belongs to, when searching for
                             nearest neighbor, e.g. ignore to which sensor the data came from. Default is False.
     :param normalize_mode:  Selects the mode of normalization; may be 'min-max', 'gaussian', or "". Default is 'min-max'
-    :param include_point:   Toggles whether or not the given point is to be included in the final list or not. Default
-                            is True.
-    :param roi_point:       Toggles whether or not the list that will be returned is a list of ROIPoints,
-                            or Pony Points. Default is ROIPoints.
     :param select_criteria: Toggles how much information is to be selected for the point:
                                 1 -> Selects (id, long_lat) from point
                                 2 -> Selects (id, long_lat, region) from point
@@ -438,12 +434,11 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="min-max",
     :type dataset:          list of [str] | str
     :type normalize_mode:   str
     :type ignore_dataset:   bool
-    :type include_point:    bool
     :type select_criteria:  int
     :return:                List of points sorted in ascending order by how close they are to the given point.
     :rtype:                 list of [RegionOfInterest.region.BasePoint | Point]
     """
-    assert ((is_min_max(select_criteria) or is_gaussian(select_criteria))
+    assert ((is_min_max(normalize_mode) or is_gaussian(normalize_mode))
             and (select_criteria == 3 or select_criteria == 6) or normalize_mode == "")
     if isinstance(point, Point):
         longitude = point.long_lat[0]
@@ -454,21 +449,19 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="min-max",
     else:
         raise TypeError("The type for point is not supported. The type of point is ", type(point))
     select_from_sql = select_sql_point(select_criteria)
-    # order_by_query = "ORDER BY point.long_lat <-> '(" + str(longitude) + ", " + str(latitude) + ")'::point " \
-    # "LIMIT " + str(k) + ";"
-    # FIXME: will return the k first BANDS of the point
+    order_by_query = "ORDER BY point.long_lat <-> '(" + str(longitude) + ", " + str(latitude) + ")'::point " \
+                                                                                                "LIMIT " + str(k) + ";"
     if ignore_dataset:
-        sql = select_from_sql
+        sql = select_from_sql + order_by_query
     else:
         if 'WHERE' in select_from_sql:
             dataset_sql = dataset_to_string(dataset)
         else:
-            dataset_sql = " WHERE " + dataset_to_string(dataset, True)
+            dataset_sql = " WHERE " + dataset_to_string(dataset, True) + order_by_query
         sql = select_from_sql + dataset_sql
     query = db.execute(sql)
     points = query_to_point_list(query, normalize_mode)
-    # TODO: get k-nearest
-    pass
+    return points
 
 
 def get_min_max(datasets="", be_assertive=False):
