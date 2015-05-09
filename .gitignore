@@ -71,3 +71,5 @@ DATABASE.txt
 # CSV/EXCEL
 *.csv
 *.xlsx
+
+*.gz
