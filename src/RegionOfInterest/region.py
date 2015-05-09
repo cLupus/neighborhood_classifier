@@ -171,46 +171,6 @@ class ROI(object):
     def __len__(self):
         return len(self.points)
 
-    def _binary_search(self, x, y, mode='x-y', closest=False):
-        i = 0
-        j = len(self.points)
-        x_param, y_param = select_params(mode)
-        point = None
-        while i != j:
-            search_index = int((i + j) / 2)
-            point = self.points[search_index]
-            if point.get_value(x_param) == x:
-                if point.get_value(y_param) == y:
-                    return point
-                elif point.get_value(y_param) > y:
-                    i = search_index
-                else:
-                    j = search_index
-                    # TODO: Search for y
-            elif point.get_value(x_param) > x:
-                i = search_index
-            else:
-                j = search_index
-        if closest:
-            return point
-        else:
-            return None
-
-    def _linear_search(self, x, y, mode='x-y', closest=False):
-        x_param, y_param = select_params(mode)
-        closest_point = None
-        if closest:
-            radius_squared = float('Inf')
-        for point in self.points:
-            point_x = point.get_value(x_param)
-            point_y = point.get_value(y_param)
-            if point_x == x and point_y == y:
-                return point
-            if closest and (point_x - x) ** 2 + (point_y - y) ** 2 < radius_squared:
-                radius_squared = (point_x - x) ** 2 + (point_y - y) ** 2
-                closest_point = point
-        return closest_point
-
 
 def select_params(mode='x-y'):
     """
