@@ -66,40 +66,6 @@ class ROI(object):
         self.points = sorted(self.points, key=expression)
         self.sorted_mode = mode
 
-    def get_bounding_box(self, mode='x-y'):
-        """
-            Returns a bounding box (list of the extreme x/y values) for this region of interest.
-            The list has the following format:
-            [x_max, x_min, y_max, y_min]
-        :param mode:    The mode of operation.
-                        Can be:
-                            'x-y'
-                                for the bounding box relative to the image
-                            'map'
-                               for the bounding box where the coordinates are global
-                            'lat-long'
-                                for the bounding boc of the latitude and longitude.
-        :return:        A bounding box for the region of interest polygon
-        :rtype:         list of [int | float]
-        """
-        y_max = -float('Inf')
-        y_min = float('Inf')
-        x_max = -float('Inf')
-        x_min = float('Inf')
-        x_param, y_param = select_params(mode)
-        for point in self.points:
-            point_x = point.get_value(x_param)
-            point_y = point.get_value(y_param)
-            if point_x < x_min:
-                x_min = point_x
-            if point_x > x_max:
-                x_max = point_x
-            if point_y < y_min:
-                y_min = point_y
-            if point_y > y_max:
-                y_max = point_y
-        return [x_max, x_min, y_max, y_min]
-
     def find_point(self, x, y, mode='x-y', closest=False):
         """
             Finds the (closest) point to a given coordinate in this region of interest. The method uses binary search
