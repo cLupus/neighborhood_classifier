@@ -8,7 +8,7 @@ import sys
 from Common.common import get_histogram, extract_name, list_to_string
 from Common.data_management import read_data_from_file, read_normalizing_data
 from RegionOfInterest.region import ROI
-from Common.common import strip_and_add_space
+from Common.common import strip_and_add_space, is_min_max, is_gaussian
 
 if sys.version_info.major == 2:
     from cPickle import dump, load, HIGHEST_PROTOCOL
@@ -238,11 +238,11 @@ class RegionsOfInterest(object):
         :return:        None
         :rtype:         None
         """
-        if mode is 'min-max' or 'max-min':
+        if is_min_max(mode):
             assert self.minimums is not None
             assert self.maximums is not None
             self._normalize_min_max(self.minimums, self.maximums)
-        elif mode is 'gaussian' or 'gauss':
+        elif is_gaussian(mode):
             assert self.means is not None
             assert self.standard_deviations is not None
             self._normalize_gaussian(self.means, self.standard_deviations)

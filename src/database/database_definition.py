@@ -67,7 +67,7 @@ class Color(db.Entity):
 class Norm(db.Entity):
     """Normalizing data for the regions of interest"""
     id = PrimaryKey(int, auto=True)
-    dataset = Required("Dataset")
+    dataset = Required("Dataset")  # Not Set because the actual normalizing might be different from frame to frame.
     band_nr = Required(int)
     maximum = Required(float)
     minimum = Required(float)

@@ -12,7 +12,7 @@ from pony.orm import db_session
 
 from Database.database_definition import db, Color, Dataset, Norm, Point, Region, Spectrum, Wavelengths, bind
 from Common.parameters import WAVELENGTHS
-from Common.common import get_one_indexed, is_in_name, string_to_array
+from Common.common import get_one_indexed, is_in_name, string_to_array, is_gaussian, is_min_max
 from RegionOfInterest.region import BasePoint
 from RegionOfInterest.region import Point as ROIPoint
 
@@ -360,30 +360,91 @@ def get_points_from_region(region, dataset, k=0):
         # TODO: Implement getting list of k-nearest neighbors
 
 
+def select_sql_point(select_criteria=1):
+    """
+        Helper method for getting an appropriate SELECT .. FROM .. [WHERE .. ] query.
+    :param select_criteria: Toggles how much information is to be selected for the point:
+                                1 -> Selects (id, long_lat) from point
+                                2 -> Selects (id, long_lat, region) from point
+                                3 -> Selects (id, long_lat, region, dataset.id) from point, and the dataset
+                                       (combined with region)
+                                4 -> Selects (id, local_location, relative_location, long_lat) from point
+                                5 -> Selects (id, local_location, relative_location, long_lat, region) from point
+                                6 -> Selects (id, local_location, relative_location, long_lat, region, dataset.id)
+                                        from point and the dataset (combined with region)
+                                If the mode is different from these, a warning will be issued, and
+                                mode 1 will be selected.
+    :type select_criteria:  int               
+    :return:                A SQL clause of SELECT ... FROM ... [WHERE ...]. [] indicates that it might not be there:
+                            This is the case for criteria 1, 2, 4, 5
+    :rtype:                 str
+    """
+    if 1 <= select_criteria <= 6:
+        select_criteria = 1
+    if select_criteria == 1:
+        return "SELECT id, long_lat FROM point "
+    elif select_criteria == 2:
+        return "SELECT id, long_lat, region FROM point "
+    elif select_criteria == 3:
+        return "SELECT point.id, point.long_lat, point.region, dataset.id FROM point, region, dataset " \
+               "WHERE point.region = region.id AND region.dataset = dataset.id "
+    elif select_criteria == 4:
+        return "SELECT id, local_location, relative_location, long_lat FROM point "
+    elif select_criteria == 5:
+        return "SELECT id, local_location, relative_location, long_lat, region FROM point "
+    elif select_criteria == 6:
+        return "SELECT point.id, point.local_location, point.relative_location, point.long_lat, point.region, " \
+               "dataset.id " \
+               "FROM point, region, dataset " \
+               "WHERE point.region = region.id AND region.dataset = dataset.id "
+    else:
+        raise Exception("Something very wrong happened...")
+
+
 @db_session
-def get_nearest_neighbors_to_point(point, k, dataset, ignore_dataset=False, include_point=True, roi_point=True):
+def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="min-max",
+                                   ignore_dataset=False, include_point=True, roi_point=True, select_criteria=3):
     """
         Returns the k-nearest neighbors for the given point. (This method will return k + 1 points in a
         list, as the given point will be included, unless include_point is set to False)
         If the ignore_dataset flag is set to True, we will not care about the points belonging to the same dataset.
+
+        NB: When mode (selection_criteria) 3, or 6 are not selected, the set will not be normalized!
     :param point:           The point we are interested in finding nearest neighbors to.
     :param k:               The number of nearest neighbors we want to find.
     :param dataset:         The dataset(s) we want to get the points from. Can be None, as it is not necessary when
                             ignore_dataset is True, but must be specified if ignore_dataset is True.
     :param ignore_dataset:  Toggles whether or not we will consider the dataset a point belongs to, when searching for
                             nearest neighbor, e.g. ignore to which sensor the data came from. Default is False.
+    :param normalize_mode:  Selects the mode of normalization; may be 'min-max', 'gaussian', or "". Default is 'min-max'
     :param include_point:   Toggles whether or not the given point is to be included in the final list or not. Default
                             is True.
     :param roi_point:       Toggles whether or not the list that will be returned is a list of ROIPoints,
                             or Pony Points. Default is ROIPoints.
+    :param select_criteria: Toggles how much information is to be selected for the point:
+                                1 -> Selects (id, long_lat) from point
+                                2 -> Selects (id, long_lat, region) from point
+                                3 -> Selects (id, long_lat, region, dataset.id) from point, and the dataset
+                                       (combined with region)
+                                4 -> Selects (id, local_location, relative_location, long_lat) from point
+                                5 -> Selects (id, local_location, relative_location, long_lat, region) from point
+                                6 -> Selects (id, local_location, relative_location, long_lat, region, dataset.id)
+                                        from point and the dataset (combined with region)
+                                If the mode is different from these, a warning will be issued, and
+                                mode 1 will be selected.
+                                NB: When mode 3, or 6 are not selected, the set will not be normalized!
     :type point:            RegionOfInterest.region.Point | Point | RegionOfInterest.region.BasePoint
     :type k:                int
     :type dataset:          list of [str] | str
+    :type normalize_mode:   str
     :type ignore_dataset:   bool
     :type include_point:    bool
+    :type select_criteria:  int
     :return:                List of points sorted in ascending order by how close they are to the given point.
     :rtype:                 list of [RegionOfInterest.region.BasePoint | Point]
     """
+    assert ((is_min_max(select_criteria) or is_gaussian(select_criteria))
+            and (select_criteria == 3 or select_criteria == 6) or normalize_mode == "")
     if isinstance(point, Point):
         longitude = point.long_lat[0]
         latitude = point.long_lat[1]
@@ -392,21 +453,22 @@ def get_nearest_neighbors_to_point(point, k, dataset, ignore_dataset=False, incl
         latitude = point.latitude
     else:
         raise TypeError("The type for point is not supported. The type of point is ", type(point))
-    select_from_sql = """
-                    SELECT id, long_lat, region
-                    FROM point"""
-    order_by_query = "ORDER BY point.long_lat <-> '(" + str(longitude) + ", " + str(latitude) + ")'::point " \
-                                                                                                "LIMIT " + str(k) + ";"
+    select_from_sql = select_sql_point(select_criteria)
+    # order_by_query = "ORDER BY point.long_lat <-> '(" + str(longitude) + ", " + str(latitude) + ")'::point " \
+    # "LIMIT " + str(k) + ";"
     # FIXME: will return the k first BANDS of the point
     if ignore_dataset:
-        sql = select_from_sql + order_by_query
+        sql = select_from_sql
     else:
-        dataset_sql = dataset_to_string(dataset)
-        sql = select_from_sql + ", dataset WHERE " + dataset_sql + order_by_query
+        if 'WHERE' in select_from_sql:
+            dataset_sql = dataset_to_string(dataset)
+        else:
+            dataset_sql = " WHERE " + dataset_to_string(dataset, True)
+        sql = select_from_sql + dataset_sql
     query = db.execute(sql)
-    points = query_to_point_list(query)
+    points = query_to_point_list(query, normalize_mode)
+    # TODO: get k-nearest
     pass
-    # TODO: Implement adding given point to list
 
 
 def get_min_max(datasets="", be_assertive=False):
@@ -530,15 +592,16 @@ def normalize(points, mode=""):
     :type mode:     str
     :return:
     """
+    # TODO: Implement
     if mode == "":
         warn("No normalizing mode was given, so we're just going to return the points as they are")
         return points
-    elif mode == 'min-max' or mode == 'max-min' or mode == 'mm':
+    elif is_min_max(mode):
         [minimums, maximums] = get_min_max()
         for point in points:
             pass
         pass
-    elif mode == 'gaussian' or mode == 'gauss' or mode == 'g':
+    elif is_gaussian(mode):
         [means, std_dev] = get_mean_std()
         pass
     else:
@@ -562,7 +625,6 @@ def query_to_point_list(query, normalize_mode=""):
     :return:                List of BasePoints/Points with their spectrum.
     :rtype:                 list of [RegionOfInterest.region.BasePoint | RegionOfInterest.region.Point]
     """
-    # TODO: Implement
     points = []
     for point_tuple in query:
         points.append(get_point(point_tuple))
@@ -575,36 +637,52 @@ def get_point(point_tuple):
     """
         Takes a tuple, and makes it into a Point, or BasePoint depending on how long the tuple is. This method will also
         get the spectrum for the given point as well
-    :param point_tuple: Tuple of numbers representing a point. May be (id, long_lat, [region]) or (id, local_location,
-                        relative_location, long_lat, [region]), where [] is optional, and might be used in the future.
+    :param point_tuple: Tuple of numbers representing a point. May be the following:
+                            * (id, long_lat, [region], [dataset]) or
+                            * (id, local_location, relative_location, long_lat, [region], [dataset]),
+                        where [] is optional, and might be used in the future.
     :type point_tuple:  tuple
     :return:            A single point (Point or BasePoint) that is equivalent to the given tuple.
-    :rtype:             RegionsOfInterest.region.BasePoint | RegionsOfInterest.region.Point
+    :rtype:             BasePoint | RegionsOfInterest.region.Point
     """
     point_id = point_tuple[0]
     sql = "SELECT value FROM spectrum WHERE point = " + str(point_id) + " ORDER BY band_nr;"
     query = db.execute(sql)
     bands = [value[0] for value in query]
-    if 2 <= len(point_tuple) <= 3:
+    if 2 <= len(point_tuple) <= 4:
         long_lat = string_to_array(point_tuple[1])
         longitude = long_lat[0]
         latitude = long_lat[1]
         # We only have enough info to give a BasePoint
-        region = point_tuple[2]
-        return BasePoint(point_id, latitude, longitude, bands, region)
-    elif 4 <= len(point_tuple) <= 5:
+        if len(point_tuple) >= 3:
+            region = point_tuple[2]
+        else:
+            region = -1
+        if len(point_tuple) == 4:
+            dataset = point_tuple[3]
+        else:
+            dataset = -1
+        return BasePoint(point_id, latitude, longitude, bands, region, dataset)
+    elif 4 <= len(point_tuple) <= 6:
         # We have more info, and so we make a 'normal' Point.
         local_location = string_to_array(point_tuple[1])
         relative_location = string_to_array(point_tuple[2])
         long_lat = string_to_array(point_tuple[3])
-        region = point_tuple[4]
         x = local_location[0]
         y = local_location[1]
         map_x = relative_location[0]
         map_y = relative_location[1]
         longitude = long_lat[0]
         latitude = long_lat[1]
-        return ROIPoint(point_id, x, y, map_x, map_y, longitude, latitude, region)
+        if len(point_tuple) >= 5:
+            region = point_tuple[4]
+        else:
+            region = -1
+        if len(point_tuple) == 6:
+            dataset = point_tuple[5]
+        else:
+            dataset = -1
+        return ROIPoint(point_id, x, y, map_x, map_y, longitude, latitude, region, dataset)
 
 
 @db_session

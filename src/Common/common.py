@@ -352,3 +352,25 @@ def _string_to_list(string, floats=True):
         return [float(o) for o in s]
     else:
         return s
+
+
+def is_gaussian(string):
+    """
+        Checks if the given string toggles gaussian
+    :param string:  A string for normalization.
+    :type string:   str
+    :return:        True if the given string can be interpret as 'gaussian'. False otherwise.
+    :rtype:         bool
+    """
+    return string == 'gaussian' or string == 'gauss' or string == 'g'
+
+
+def is_min_max(string):
+    """
+        Checks if the given string toggles min-max
+    :param string:  A string for normalization.
+    :type string:   str
+    :return:        True if the given string can be interpret as 'min-max'. False otherwise.
+    :rtype:         bool
+    """
+    return string == 'min-max' or string == 'max-min' or string == 'mm'
