@@ -238,17 +238,23 @@ class BasePoint(object):
     only has id, longitude, and latitude, as well as the spectrum
     """
 
-    def __init__(self, identity, latitude, longitude, bands):
+    def __init__(self, identity, latitude, longitude, bands, region_id=-1, dataset_id=-1):
         """
             A object to hold, and organize the relevant information for a specific point in the data set.
         :param identity:    An id, unique to the ROI polygon at creation in ENVI. Not used
         :param latitude:    The absolute latitude of the point.
         :param longitude:   The absolute longitude of the point.
         :param bands:       A list of the different spectral bands for the point.
+        :param region_id:   Optional:   The id for the region the point belongs to. Default is -1, indicating that it
+                                        has not been set.
+        :param dataset_id:  Optional:   The id for the dataset the point belongs to. Default is -1, indicating that it
+                                        has not been set.
         :type identity:     int
         :type latitude:     float
         :type longitude:    float
         :type bands:        list[float]
+        :type region_id:    int
+        :type dataset_id:   int
         :return:
         """
         self.identity = int(identity)
@@ -259,6 +265,10 @@ class BasePoint(object):
         """ :type : float """
         self.bands = bands
         """ :type : list[float] """
+        self.region_id = region_id
+        """ :type : int """
+        self.dataset_id = dataset_id
+        """ :type : int """
 
     def get_bands_as_string(self, delimiter=","):
         """
@@ -279,7 +289,7 @@ class Point(BasePoint):
     More specific information is stored, such as relative image location and such
     """
 
-    def __init__(self, identity, x, y, map_x, map_y, latitude, longitude, bands):
+    def __init__(self, identity, x, y, map_x, map_y, latitude, longitude, bands, region_id=-1, dataset_id=-1):
         """
             A object to hold, and organize the relevant information for a specific point in the data set.
         :param identity:    An id, unique to the ROI polygon at creation in ENVI. Not used
@@ -290,6 +300,10 @@ class Point(BasePoint):
         :param latitude:    The absolute latitude of the point.
         :param longitude:   The absolute longitude of the point.
         :param bands:       A list of the different spectral bands for the point.
+        :param region_id:   Optional:   The id for the region the point belongs to. Default is -1, indicating that it
+                                        has not been set.
+        :param dataset_id:  Optional:   The id for the dataset the point belongs to. Default is -1, indicating that it
+                                        has not been set.
         :type identity:     int
         :type x:            int
         :type y:            int
@@ -298,9 +312,11 @@ class Point(BasePoint):
         :type latitude:     float
         :type longitude:    float
         :type bands:        list[float]
+        :type region_id:    int
+        :type dataset_id:   int
         :return:
         """
-        super(Point, self).__init__(identity, latitude, longitude, bands)
+        super(Point, self).__init__(identity, latitude, longitude, bands, region_id, dataset_id)
         self.identity = int(identity)
         self.X = int(x)
         """ :type : int """

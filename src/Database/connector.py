@@ -5,13 +5,16 @@ In this file, all the communication between the main program, and the database i
 
 from __future__ import division
 
+from warnings import warn
+
 import pony.orm as pny
 from pony.orm import db_session
 
 from Database.database_definition import db, Color, Dataset, Norm, Point, Region, Spectrum, Wavelengths, bind
 from Common.parameters import WAVELENGTHS
-from Common.common import get_one_indexed, is_in_name
+from Common.common import get_one_indexed, is_in_name, string_to_array
 from RegionOfInterest.region import BasePoint
+from RegionOfInterest.region import Point as ROIPoint
 
 
 __author__ = 'Sindre Nistad'
@@ -261,8 +264,10 @@ def add_normalizing(roi, dataset, debug=False):
         Adds the normalizing data (max, min, mean, std) to the dataset.
     :param roi:     The regions of interest that are contained in the given dataset.
     :param dataset: The dataset to witch we wish to add normalizing data.
+    :param debug:   Flag for toggling debug print-outs on or off. Default is False.
     :type roi:      RegionOfInterest.regions_of_interest.RegionsOfInterest
     :type dataset:  Dataset
+    :type debug:    bool
     :return:
     """
     if pny.exists(norm for norm in Norm if dataset == norm.dataset):
@@ -399,13 +404,147 @@ def get_nearest_neighbors_to_point(point, k, dataset, ignore_dataset=False, incl
         dataset_sql = dataset_to_string(dataset)
         sql = select_from_sql + ", dataset WHERE " + dataset_sql + order_by_query
     query = db.execute(sql)
-    points = []
-    for elm in query:
-        if roi_point:
-            # TODO: Implement adding points to list
+    points = query_to_point_list(query)
+    pass
+    # TODO: Implement adding given point to list
+
+
+def get_min_max(datasets="", be_assertive=False):
+    """
+        Gets a dict of list og minimums, and maximums for each datasets. This can be refined to give the minimums, and
+        maximums for specified datasets.
+    :param datasets:        A single datasets, or a list of datasets.
+    :param be_assertive:    Toggles whether or not we want to assert that the bands are in the right order. By default
+                            this is False, but should not be necessary.
+    :type datasets:         str | list of [str]
+    :type be_assertive:     bool
+    :return:                A dict of lists with the minimums and maximums for the given datasets; e.i. two lists, one
+                            for maximums, and one for minimums. Each of these contain a dictionary that uses the dataset
+                            id as a key and a list of band/a spectrum for each entry.
+    :rtype:                 list of [dict of [int, list of [float]]]
+    """
+    return get_normalizing_data(['max', 'min'], datasets, be_assertive)
+
+
+def get_mean_std(datasets="", be_assertive=False):
+    """
+        Gets a dict of list og means, and standard deviations for each datasets. This can be refined to give the
+        means, and standard deviations for specified datasets.
+    :param datasets:        A single datasets, or a list of datasets.
+    :param be_assertive:    Toggles whether or not we want to assert that the bands are in the right order. By default
+                            this is False, but should not be necessary.
+    :type datasets:         str | list of [str]
+    :type be_assertive:     bool
+    :return:                A dict of lists with the means, and standard deviations for the given datasets;
+                            e.i. two lists, one for standard deviations, and one for means. Each of these contain a
+                            dictionary that uses the dataset id as a key and a list of band/a spectrum for each entry.
+    :rtype:                 list of [dict of [int, list of [float]]]
+    """
+    return get_normalizing_data(['mean', 'standard deviation'], datasets, be_assertive)
+
+
+@db_session
+def get_normalizing_data(params, datasets="", be_assertive=False):
+    """
+        Gets a dict of list of minimums, maximums, means, and standard deviations for each datasets.
+        This can be refined to give the minimums, maximums, means, and std's for specified datasets.
+    :param params:          A string specifying which parameters we are interested in.
+    :param datasets:        A single datasets, or a list of datasets.
+    :param be_assertive:    Toggles whether or not we want to assert that the bands are in the right order. By default
+                            this is False, but should not be necessary.
+    :type params:           str | list of [str]
+    :type datasets:         str | list of [str]
+    :type be_assertive:     bool
+    :return:                A dict of lists with the minimums, maximums, means, std's for the given datasets;
+                            e.i. four lists, one for maximums, one for minimums, and so on. Each of these contain a
+                            dictionary that uses the dataset id as a key and a list of band/a spectrum for each entry.
+    :rtype:                 list of [dict of [int, list of [float]]]
+    """
+    # Creates the appropriate SQL for getting the minimums and maximums
+    select_sql = "SELECT band_nr, dataset"
+    if 'ma' in params:
+        select_sql += ", maximum"
+    if 'mi' in params:
+        select_sql += ", minimum"
+    if 'me' in params:
+        select_sql += ", mean"
+    if 'std' in params or 'standard' in params:
+        select_sql += ", std_dev"
+    select_sql += " FROM norm "
+    if datasets != "":
+        where_sql = "WHERE " + dataset_to_string(datasets)
+    else:
+        where_sql = ""
+    order_sql = " ORDER BY band_nr ASC "
+    sql = select_sql + where_sql + order_sql + ";"
+    query = db.execute(sql)
+    maximums, minimums, means, standard_deviations = {}, {}, {}, {}
+    for [band_nr, dataset, maximum, minimum, mean, std_dev] in query:
+        if 'ma' in params and dataset not in maximums:
+            # We have not yet added the bands for this dataset
+            maximums[dataset] = []
+        if 'mi' in params and dataset not in minimums:
+            # We have not yet added the bands for this dataset
+            minimums[dataset] = []
+        if 'me' in params and dataset not in means:
+            means[dataset] = []
+        if ('std' in params or 'standard' in params) and dataset not in standard_deviations:
+            standard_deviations[dataset] = []
+        if 'ma' in params:
+            maximums[dataset].append(maximum)  # Is ordered by band_nr
+        if 'mi' in params:
+            minimums[dataset].append(minimum)  # Is ordered by band_nr
+        if 'me' in params:
+            means[dataset].append(mean)  # Is ordered by band_nr
+        if 'std' in params or 'standard' in params:
+            standard_deviations[dataset].append(std_dev)  # Is ordered by band_nr
+        if be_assertive:
+            if 'ma' in params:
+                assert len(maximums[dataset]) == band_nr
+            if 'mi' in params:
+                assert len(minimums[dataset]) == band_nr
+            if 'me' in params:
+                assert len(means[dataset]) == band_nr
+            if 'std' in params or 'standard' in params:
+                assert len(standard_deviations[dataset]) == band_nr
+    result = []
+    if 'ma' in params:
+        result.append(maximums)
+    if 'mi' in params:
+        result.append(minimums)
+    if 'me' in params:
+        result.append(means)
+    if 'std' in params or 'standard' in params:
+        result.append(standard_deviations)
+
+    return result
+
+
+def normalize(points, mode=""):
+    """
+        Normalizes the given set of points according to the given mode. If the mode is not set, the method will not do
+        anything, but return the point-set.
+    :param points:  A list of points we want to normalize.
+    :param mode:    The mode of normalization.
+    :type points:   list of [BasePoint]
+    :type mode:     str
+    :return:
+    """
+    if mode == "":
+        warn("No normalizing mode was given, so we're just going to return the points as they are")
+        return points
+    elif mode == 'min-max' or mode == 'max-min' or mode == 'mm':
+        [minimums, maximums] = get_min_max()
+        for point in points:
             pass
         pass
-        # TODO: Implement adding given point to list
+    elif mode == 'gaussian' or mode == 'gauss' or mode == 'g':
+        [means, std_dev] = get_mean_std()
+        pass
+    else:
+        warn("The given mode is unknown. Returning the points as they were")
+        return points
+    pass
 
 
 def query_to_point_list(query, normalize_mode=""):
@@ -427,6 +566,7 @@ def query_to_point_list(query, normalize_mode=""):
     points = []
     for point_tuple in query:
         points.append(get_point(point_tuple))
+    points = normalize(points, normalize_mode)
     return points
 
 
@@ -435,8 +575,8 @@ def get_point(point_tuple):
     """
         Takes a tuple, and makes it into a Point, or BasePoint depending on how long the tuple is. This method will also
         get the spectrum for the given point as well
-    :param point_tuple: Tuple of numbers representing a point. May be (id, long_lat, region) or (id, local_location,
-                        relative_location, long_lat, region)
+    :param point_tuple: Tuple of numbers representing a point. May be (id, long_lat, [region]) or (id, local_location,
+                        relative_location, long_lat, [region]), where [] is optional, and might be used in the future.
     :type point_tuple:  tuple
     :return:            A single point (Point or BasePoint) that is equivalent to the given tuple.
     :rtype:             RegionsOfInterest.region.BasePoint | RegionsOfInterest.region.Point
@@ -445,13 +585,26 @@ def get_point(point_tuple):
     sql = "SELECT value FROM spectrum WHERE point = " + str(point_id) + " ORDER BY band_nr;"
     query = db.execute(sql)
     bands = [value[0] for value in query]
-    if len(point_tuple) == 3:
-        long_lat = eval(point_tuple[1])
+    if 2 <= len(point_tuple) <= 3:
+        long_lat = string_to_array(point_tuple[1])
         longitude = long_lat[0]
         latitude = long_lat[1]
+        # We only have enough info to give a BasePoint
         region = point_tuple[2]
-        return BasePoint(point_id, latitude, longitude, bands)
-    pass
+        return BasePoint(point_id, latitude, longitude, bands, region)
+    elif 4 <= len(point_tuple) <= 5:
+        # We have more info, and so we make a 'normal' Point.
+        local_location = string_to_array(point_tuple[1])
+        relative_location = string_to_array(point_tuple[2])
+        long_lat = string_to_array(point_tuple[3])
+        region = point_tuple[4]
+        x = local_location[0]
+        y = local_location[1]
+        map_x = relative_location[0]
+        map_y = relative_location[1]
+        longitude = long_lat[0]
+        latitude = long_lat[1]
+        return ROIPoint(point_id, x, y, map_x, map_y, longitude, latitude, region)
 
 
 @db_session
@@ -524,13 +677,16 @@ def point_to_postgres_point(*args):
     return s
 
 
-def dataset_to_string(dataset):
+def dataset_to_string(dataset, single=False):
     """
         A method that takes a single dataset, or a list of datasets, and converts it into a SQL clause:
         'AND (dataset[0] OR dataset[1] OR ... OR dataset[n-1])'. The datasets can be the full name of the dataset
         or it can be the type, e.g. MASTER, or AVIRIS, or a mixture of the two.
     :param dataset: A single dataset, or a list of datasets that we want to include in a query.
+    :param single:  Toggles whether or not the sub query is the only part of the WHERE clause, or not. Default is False.
+                    In other words, if this flag is set, the AND (...) will be dropped.
     :type dataset:  str | list of [str]
+    :type single:   bool
     :return:        A single string of the form AND (dataset.name = dataset[0] OR ... OR dataset.name = dataset[n-1]) if
                     the given string has only dataset-names in it, or it will return a single string of the form
                     AND (dataset.type = dataset[0] OR ... OR dataset.type = dataset[n-1]) if the datasets have the word
@@ -542,7 +698,10 @@ def dataset_to_string(dataset):
 
     if not isinstance(dataset, list):
         dataset = [dataset]
-    dataset_sql = " AND ("
+    if not single:
+        dataset_sql = " AND ("
+    else:
+        dataset_sql = ""
     for elm in dataset:
         if 'MASTER' in dataset or 'AVIRIS' in elm:
             dataset_sql += "dataset.type = '"
@@ -550,13 +709,6 @@ def dataset_to_string(dataset):
             dataset_sql += " dataset.name = '"
         dataset_sql += elm + "' OR "
     dataset_sql = dataset_sql[:-3]  # Removing the last 'or '
-    dataset_sql += ')'
+    if not single:
+        dataset_sql += ')'
     return dataset_sql
-
-    # def main():
-    # """
-    #         The method that will run when the connector module is imported.
-    #         Makes sure that the database is bounded.
-    #     :return:
-    #     """
-    #     bind()

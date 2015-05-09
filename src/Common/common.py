@@ -5,6 +5,7 @@
 __author__ = 'Sindre Nistad'
 
 from re import split as regex_split
+from ast import literal_eval
 
 import matplotlib.pylab as plt
 from matplotlib import figure
@@ -304,3 +305,50 @@ def normalize_gaussian(data, means, standard_deviations):
     """
     assert len(data) == len(means) == len(standard_deviations)
     return [(data[i] - means[i]) / standard_deviations[i] for i in range(len(data))]
+
+
+def string_to_array(string, floats=True):
+    """
+        Converts a string literal to a tuple, list or dict safely
+    :param string:  The string to be converted
+    :param floats:  Toggles whether or not the resulting tuple or list will be of floats, or strings
+    :type string:   str
+    :type floats:   bool
+    :return:        Tuple, list, or dict with the content in the string literal.
+    :rtype:         tuple of [str | float] | list of [str | float\ | dict of [str, str]
+    """
+    # This whole function can be reduced to 'literal_eval'...
+    if '(' in string and ')' in string:
+        # Tuple
+        return tuple(_string_to_list(string, floats))
+    elif '[' in string and ']' in string:
+        # List
+        return _string_to_list(string, floats)
+    elif '{' in string and '}' in string and ':' in string:
+        # Dict
+        return literal_eval(string)
+    else:
+        raise ValueError("The given string is not a literal tuple, list, or dict!")
+
+
+def _string_to_list(string, floats=True):
+    """
+        Helper method to string_to_array. Takes a string, splits it by ',', and removes the beginning and end 'braces'.
+    :param string:  String to be divided.
+    :param floats:  Toggles whether or not we are to return numbers instead of string literals of what's in 'string'.
+    :type string:   str
+    :type floats:   bool
+    :return:        A list of string literals
+    :rtype:         list of [str]
+    """
+    s = string.split(',')
+    first = s[0]
+    last = s[-1]
+    first = first[1:]  # Removes the first brace
+    last = last[:-1]  # Removes the last brace
+    s[0] = first
+    s[-1] = last
+    if floats:
+        return [float(o) for o in s]
+    else:
+        return s

@@ -4,8 +4,6 @@ __author__ = 'Sindre Nistad'
 from Classifier.neural_network import ClassificationNet
 
 from RegionOfInterest.export import get_roi
-from Database.database_definition import bind
-import Database.connector as conn
 
 
 def run():
@@ -24,14 +22,14 @@ def run():
     #print roi_master_r19.standard_deviations
 
     # roi_master_r19.save_to_csv(";", "../master_r19.csv")
-    # create_database(overwrite=False, create_tables=False, check_tables=True)
-    bind()
+    # create_database(overwrite=False, create_tables=True, check_tables=True)
+    # bind()
     # drop_tables(True)
     #roi_to_database(roi_master_r19)
     # export_to_potgres(debug=True, add_wavelengths=True, start_index=2, force_load=True)
     #add_wavelength_to_dataset()
-    sample = conn.get_random_sample('soil', 'AVIRIS', 100)
-    print(sample)
+    # sample = conn.get_random_sample('soil', 'AVIRIS', 100)
+    # print(sample)
     pass
 
 
