@@ -20,15 +20,15 @@ from RegionOfInterest.region import Point as ROIPoint
 __author__ = 'Sindre Nistad'
 
 
-def db_connect():
+def connect():
     """
         Performs Database connection using Database settings from settings.py.
-    :return:    A Database engine
-    :rtype:     Engine
+    :return:    None
+    :rtype:     None
     """
     # return create_engine(URL(**settings.DATABASE))
     bind()
-    return db.get_connection()
+    # return db.get_connection()
 
 
 def create_tables(overwrite=False, debug=True):
@@ -193,8 +193,10 @@ def add_wavelength_to_dataset(dataset, spectral_type, debug=False, commit_at_end
     :param dataset:         The dataset to which the info is to be added.
     :param spectral_type:   What kind of spectra is it? (e.g. MASTER, or AVIRIS)
     :param commit_at_end:   Toggles whether or not all the changes are to be committed at the end. Default is False.
+    :param debug:           Toggles debug/verbose printouts
     :type dataset:          Database.database_definition.Dataset
     :type spectral_type:    str
+    :type debug:            bool
     :type commit_at_end:    bool
     :return:
     """
@@ -318,46 +320,41 @@ Methods for getting stuff from the database
 # TODO
 
 
-@db_session
-def get_points_from_region(region, dataset, k=0):
-    # TODO: Implement
+def get_points_from_region(region, dataset="", normalizing_mode="", k=0):
     """
         Returns all points, and its k nearest neighbors that are in a given region (can be general (only name),
         or specific (includes sub name). If k is not set explicitly, only the points themselves will be returned. k does
         not include the point itself.
+        If the normalizing_mode is set to 'min-max', og 'gaussian', the data will be normalized.
         The dataset is a list, (or a single) data sets the points will be drawn from. If blank, or the list ['MASTER',
         'AVIRIS'], it will return every point which has the given region as name. If one of then, then all points in the
         region which are from the given spectrometer. A specific data set can also be specified, e.g. master_r19... in
         which case, only points in the given data set will be returned. Returns a list of lists of points.
-    :param region:  The region points are taken from
-    :param dataset: The dataset(s) the points are part of
-    :param k:       The number of neighbors that are to be returned with the point. Default is 0; only the point itself.
-    :type region:   str
-    :type dataset:  list of [str]
-    :type k:        int
-    :return:        List of list of points, with their neighbors
-    :rtype:         list of [list of [RegionOfInterest.region.Point]]
+    :param region:              The region points are taken from.
+    :param dataset:             The dataset(s) the points are part of. Default is to not place any restrictions.
+    :param normalizing_mode:    Toggles whether or not the data is to be normalized, and how the data is to be
+                                normalized. Can be 'min-max', or 'gaussian'. Default is none ("").
+    :param k:                   The number of neighbors that are to be returned with the point. Default is 0;
+                                only the point itself.
+    :type region:               str
+    :type dataset:              list of [str]
+    :type normalizing_mode:     str
+    :type k:                    int
+    :return:                    List of list of points, with their neighbors
+    :rtype:                     list of [list of [RegionOfInterest.region.Point]]
     """
-    # Taking care of the names
-    name = region.split('_')
-    if '_' in region:
-        # The region has a sub name, and we want to an extra constraint to the search
-        sub_name = name[1]
-        name = name[0]
+    points = get_sample(region, dataset, -1)
+    if k > 0:
+        neighborhoods = []
+        for point in points:
+            neighborhoods.append(get_nearest_neighbors_to_point(point, k, dataset))
+        if normalizing_mode != "":
+            return normalize(neighborhoods, normalizing_mode)
+        return neighborhoods
     else:
-        # The given name does not contain a sub-name.
-        name = name[0]
-
-    if dataset == "":
-        # Give all from every dataset/collection
-        pass
-    elif 'MASTER' in dataset or 'AVIRIS' in dataset:
-        # Give all points that are from the MASTER, and/or AVIRIS datasets
-        pass
-    else:
-        # Give the points in the given dataset
-        pass
-        # TODO: Implement getting list of k-nearest neighbors
+        if normalizing_mode != "":
+            return normalize(points, normalizing_mode)
+        return points
 
 
 def select_sql_point(select_criteria=1):
@@ -379,7 +376,7 @@ def select_sql_point(select_criteria=1):
                             This is the case for criteria 1, 2, 4, 5
     :rtype:                 str
     """
-    if 1 <= select_criteria <= 6:
+    if not 1 <= select_criteria <= 6:
         select_criteria = 1
     if select_criteria == 1:
         return "SELECT id, long_lat FROM point "
@@ -402,7 +399,7 @@ def select_sql_point(select_criteria=1):
 
 
 @db_session
-def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="min-max",
+def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
                                    ignore_dataset=False, select_criteria=3):
     """
         Returns the k-nearest neighbors for the given point. (This method will return k + 1 points in a
@@ -416,7 +413,7 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="min-max",
                             ignore_dataset is True, but must be specified if ignore_dataset is True.
     :param ignore_dataset:  Toggles whether or not we will consider the dataset a point belongs to, when searching for
                             nearest neighbor, e.g. ignore to which sensor the data came from. Default is False.
-    :param normalize_mode:  Selects the mode of normalization; may be 'min-max', 'gaussian', or "". Default is 'min-max'
+    :param normalize_mode:  Selects the mode of normalization; may be 'min-max', 'gaussian', or "". Default is ""
     :param select_criteria: Toggles how much information is to be selected for the point:
                                 1 -> Selects (id, long_lat) from point
                                 2 -> Selects (id, long_lat, region) from point
@@ -449,16 +446,18 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="min-max",
     else:
         raise TypeError("The type for point is not supported. The type of point is ", type(point))
     select_from_sql = select_sql_point(select_criteria)
-    order_by_query = "ORDER BY point.long_lat <-> '(" + str(longitude) + ", " + str(latitude) + ")'::point " \
-                                                                                                "LIMIT " + str(k) + ";"
+    order_by_sql = "ORDER BY point.long_lat <-> '(" + str(longitude) + ", " + str(latitude) + ")'::point LIMIT " + str(
+        k) + ";"
     if ignore_dataset:
-        sql = select_from_sql + order_by_query
+        sql = select_from_sql + order_by_sql
     else:
         if 'WHERE' in select_from_sql:
             dataset_sql = dataset_to_string(dataset)
+        elif dataset != "":
+            dataset_sql = " WHERE " + dataset_to_string(dataset, True)
         else:
-            dataset_sql = " WHERE " + dataset_to_string(dataset, True) + order_by_query
-        sql = select_from_sql + dataset_sql
+            dataset_sql = ""
+        sql = select_from_sql + dataset_sql + order_by_sql
     query = db.execute(sql)
     points = query_to_point_list(query, normalize_mode)
     return points
@@ -478,7 +477,7 @@ def get_min_max(datasets="", be_assertive=False):
                             id as a key and a list of band/a spectrum for each entry.
     :rtype:                 list of [dict of [int, list of [float]]]
     """
-    return get_normalizing_data(['max', 'min'], datasets, be_assertive)
+    return get_normalizing_data(['minimum', 'maximum'], datasets, be_assertive)
 
 
 def get_mean_std(datasets="", be_assertive=False):
@@ -498,16 +497,32 @@ def get_mean_std(datasets="", be_assertive=False):
     return get_normalizing_data(['mean', 'standard deviation'], datasets, be_assertive)
 
 
+def _order_results(order, result):
+    """
+        Orders the result in the given order, and returns a list of the result
+    :param order:   The order in which you want the results.
+    :param result:  The dictionary of results from get_normalizing_data
+    :type order:    list of [str]
+    :type result:   dict of [str, list of [float]]
+    :return:        An ordered list of parameters.
+    :rtype:         list of [list of [float]]
+    """
+    l = []
+    for elm in order:
+        l.append(result[elm])
+    return l
+
+
 @db_session
 def get_normalizing_data(params, datasets="", be_assertive=False):
     """
         Gets a dict of list of minimums, maximums, means, and standard deviations for each datasets.
         This can be refined to give the minimums, maximums, means, and std's for specified datasets.
-    :param params:          A string specifying which parameters we are interested in.
+    :param params:          A list of strings specifying which parameters we are interested in.
     :param datasets:        A single datasets, or a list of datasets.
     :param be_assertive:    Toggles whether or not we want to assert that the bands are in the right order. By default
                             this is False, but should not be necessary.
-    :type params:           str | list of [str]
+    :type params:           list of [str]
     :type datasets:         str | list of [str]
     :type be_assertive:     bool
     :return:                A dict of lists with the minimums, maximums, means, std's for the given datasets;
@@ -517,13 +532,13 @@ def get_normalizing_data(params, datasets="", be_assertive=False):
     """
     # Creates the appropriate SQL for getting the minimums and maximums
     select_sql = "SELECT band_nr, dataset"
-    if 'ma' in params:
-        select_sql += ", maximum"
-    if 'mi' in params:
+    if 'minimum' in params:
         select_sql += ", minimum"
-    if 'me' in params:
+    if 'maximum' in params:
+        select_sql += ", maximum"
+    if 'mean' in params:
         select_sql += ", mean"
-    if 'std' in params or 'standard' in params:
+    if 'standard' in params or 'standard deviation' in params:
         select_sql += ", std_dev"
     select_sql += " FROM norm "
     if datasets != "":
@@ -533,46 +548,94 @@ def get_normalizing_data(params, datasets="", be_assertive=False):
     order_sql = " ORDER BY band_nr ASC "
     sql = select_sql + where_sql + order_sql + ";"
     query = db.execute(sql)
-    maximums, minimums, means, standard_deviations = {}, {}, {}, {}
-    for [band_nr, dataset, maximum, minimum, mean, std_dev] in query:
-        if 'ma' in params and dataset not in maximums:
-            # We have not yet added the bands for this dataset
-            maximums[dataset] = []
-        if 'mi' in params and dataset not in minimums:
-            # We have not yet added the bands for this dataset
-            minimums[dataset] = []
-        if 'me' in params and dataset not in means:
-            means[dataset] = []
-        if ('std' in params or 'standard' in params) and dataset not in standard_deviations:
-            standard_deviations[dataset] = []
-        if 'ma' in params:
+    minimums, maximums, means, standard_deviations = {}, {}, {}, {}
+    for query_tuple in query:
+        band_nr = query_tuple[0]
+        dataset = query_tuple[1]
+        if 'maximum' in params:
+            if dataset not in maximums:
+                # We have not yet added the bands for this dataset
+                maximums[dataset] = []
+            maximum = query_tuple[_index_of_param(params, 'maximum')]
             maximums[dataset].append(maximum)  # Is ordered by band_nr
-        if 'mi' in params:
-            minimums[dataset].append(minimum)  # Is ordered by band_nr
-        if 'me' in params:
-            means[dataset].append(mean)  # Is ordered by band_nr
-        if 'std' in params or 'standard' in params:
-            standard_deviations[dataset].append(std_dev)  # Is ordered by band_nr
-        if be_assertive:
-            if 'ma' in params:
+            if be_assertive:
                 assert len(maximums[dataset]) == band_nr
-            if 'mi' in params:
-                assert len(minimums[dataset]) == band_nr
-            if 'me' in params:
-                assert len(means[dataset]) == band_nr
-            if 'std' in params or 'standard' in params:
-                assert len(standard_deviations[dataset]) == band_nr
-    result = []
-    if 'ma' in params:
-        result.append(maximums)
-    if 'mi' in params:
-        result.append(minimums)
-    if 'me' in params:
-        result.append(means)
-    if 'std' in params or 'standard' in params:
-        result.append(standard_deviations)
 
-    return result
+        if 'minimum' in params:
+            if dataset not in minimums:
+                # We have not yet added the bands for this dataset
+                minimums[dataset] = []
+            minimum = query_tuple[_index_of_param(params, 'minimum')]
+            minimums[dataset].append(minimum)  # Is ordered by band_nr
+            if be_assertive:
+                assert len(minimums[dataset]) == band_nr
+
+        if 'mean' in params:
+            if dataset not in means:
+                means[dataset] = []
+            mean = query_tuple[_index_of_param(params, 'mean')]
+            means[dataset].append(mean)  # Is ordered by band_nr
+            if be_assertive:
+                assert len(means[dataset]) == band_nr
+
+        if 'standard' in params or 'standard deviation' in params:
+            if dataset not in standard_deviations:
+                standard_deviations[dataset] = []
+            std_dev = query_tuple[_index_of_param(params, 'standard deviation')]
+            standard_deviations[dataset].append(std_dev)  # Is ordered by band_nr
+            if be_assertive:
+                assert len(standard_deviations[dataset]) == band_nr
+    # Adding the results
+    result = {
+        'maximum': maximums,
+        'minimum': minimums,
+        'mean': means,
+        'standard deviation': standard_deviations
+    }
+    return _order_results(params, result)
+
+
+def _min_max_normalize(point, minimums, maximums):
+    """
+    Helper method for normalizing the given point in a min-max fashion.
+    :param point:       The point we want to normalize in a min/max fashion.
+    :param minimums:    The minimums for the datasets, or a list of maximums fore each band, for this specific point.
+    :param maximums:    The maximums for the datasets, or a list of maximums fore each band, for this specific point.
+    :type point:        BasePoint
+    :type minimums:     dict of [int, list of [float]] | list of [float]
+    :type maximums:     dict of [int, list of [float]] | list of [float]
+    :return:
+    """
+    if isinstance(maximums, dict):
+        maximums = maximums[point.dataset_id]
+    if isinstance(minimums, dict):
+        minimums = minimums[point.dataset_id]
+    for i in range(len(point.bands)):
+        band = point.bands[i]
+        band = (band - minimums[i]) / (maximums[i] - minimums[i])
+        point.bands[i] = band
+
+
+def _gaussian_normalize(point, means, std_devs):
+    """
+    Helper method for normalizing the given point in a min-max fashion.
+    :param point:       The point we want to normalize in a min/max fashion.
+    :param means:       The means for the datasets, or a list of means for each band, for this specific point.
+    :param std_devs:    The standard deviations for the datasets, or a list of standard deviations for each band,
+                        for this specific point.
+    :type point:        BasePoint
+    :type means:        dict of [int, list of [float]] | list of [float]
+    :type std_devs:     dict of [int, list of [float]] | list of [float]
+    :return:
+    """
+    if isinstance(means, dict):
+        means = means[point.dataset_id]
+    if isinstance(std_devs, dict):
+        std_devs = std_devs[point.dataset_id]
+    for i in range(len(point.bands)):
+        band = point.bands[i]
+        band = (band - means[i]) / std_devs[i]
+        point.bands[i] = band
 
 
 def normalize(points, mode=""):
@@ -585,22 +648,27 @@ def normalize(points, mode=""):
     :type mode:     str
     :return:
     """
-    # TODO: Implement
     if mode == "":
         warn("No normalizing mode was given, so we're just going to return the points as they are")
-        return points
     elif is_min_max(mode):
-        [minimums, maximums] = get_min_max()
+        [minimums, maximums] = get_normalizing_data(['minimum', 'maximum'])
         for point in points:
-            pass
-        pass
+            if isinstance(point, list):
+                for p in point:
+                    _min_max_normalize(p, minimums, maximums)
+            else:
+                _min_max_normalize(point, minimums, maximums)
     elif is_gaussian(mode):
         [means, std_dev] = get_mean_std()
-        pass
+        for point in points:
+            if isinstance(point, list):
+                for p in point:
+                    _gaussian_normalize(p, means, std_dev)
+            else:
+                _gaussian_normalize(point, means, std_dev)
     else:
         warn("The given mode is unknown. Returning the points as they were")
-        return points
-    pass
+    return points
 
 
 def query_to_point_list(query, normalize_mode=""):
@@ -621,7 +689,8 @@ def query_to_point_list(query, normalize_mode=""):
     points = []
     for point_tuple in query:
         points.append(get_point(point_tuple))
-    points = normalize(points, normalize_mode)
+    if normalize_mode != "":
+        points = normalize(points, normalize_mode)
     return points
 
 
@@ -679,7 +748,7 @@ def get_point(point_tuple):
 
 
 @db_session
-def get_random_sample(area, dataset, number_of_samples, background=False):
+def get_sample(area, dataset, number_of_samples, background=False, random_sample=False):
     """
         Returns a random sample of number_of_samples points which lies in the given area (which may be regions, or a
         specific region when given a sub-name; e.g. name_sub-name, or just name for the value of area. If background
@@ -690,13 +759,17 @@ def get_random_sample(area, dataset, number_of_samples, background=False):
     :param dataset:             The dataset to which the points we want to sample from belong. This can be the empty
                                 string, in which case, we cont care about the dataset. It can also be an array of
                                 datasets, and which case the points can be from any of them.
-    :param number_of_samples:   The number of samples we want.
+    :param number_of_samples:   The number of samples we want. This can be set to -1 (negative) in which case, every
+                                point that satisfy the query is selected.
     :param background:          Toggles whether or not the returned set is from the actual region, or from the
                                 'background' of that region, e.i. anything but that region.
+    :param random_sample:       Toggles whether or not the sample is to be randomized or not. Default is not, as it is
+                                expensive (at the moment).
     :type area:                 str
     :type dataset:              str | list of [str]
     :type number_of_samples:    int
     :type background:           bool
+    :type random_sample:        bool
     :return:                    A list of points which constitutes a sample from the given region, or a list of points
                                 constitutes a sample from the background of that region.
     :rtype:                     list of [RegionOfInterest.region.Point]
@@ -724,10 +797,17 @@ def get_random_sample(area, dataset, number_of_samples, background=False):
     where_sql = " WHERE point.region = region.id AND region.name" + equal_operator + "'" + name + "'"
     if sub_name != "":
         where_sql += " AND region.sub_name" + equal_operator + "'" + sub_name + "'"
-    order_by_sql = " ORDER BY random() LIMIT " + str(number_of_samples) + ";"
-    # TODO: Fix the random selection; according to StackOverflow, this is VERY slow (sorts the entire table).
-    # There are remedies
-    sql = select_sql + where_sql + dataset_sql + order_by_sql
+    if random_sample:
+        order_by_sql = " ORDER BY random() "
+        # TODO: Fix the random selection; according to StackOverflow, this is VERY slow (sorts the entire table).
+        # There are remedies, but they are difficult to work on when constraining the data.
+    else:
+        order_by_sql = ""
+    if number_of_samples > 0:
+        limit_sql = " LIMIT " + str(number_of_samples)
+    else:
+        limit_sql = ""
+    sql = select_sql + where_sql + dataset_sql + order_by_sql + limit_sql + ";"
     query = db.execute(sql)
     return query_to_point_list(query)
 
@@ -764,8 +844,10 @@ def dataset_to_string(dataset, single=False):
                     'MASTER' or 'AVIRIS' in it. If there is a combination of the two, a combination will be returned.
     :rtype:         str
     """
-    assert dataset != ""
-    assert dataset != []
+    if dataset == "" or dataset == []:
+        warn("You did not give any databases, so you won't receive a SQL clause, "
+             "only a empty string. (dataset_to_string)")
+        return ""
 
     if not isinstance(dataset, list):
         dataset = [dataset]
@@ -783,3 +865,21 @@ def dataset_to_string(dataset, single=False):
     if not single:
         dataset_sql += ')'
     return dataset_sql
+
+
+def _index_of_param(param, val):
+    """
+        Returns the index for the given val e.g. 'ma' for maximum, 'mi', for minimum, etc. for the given param, which
+        can be a single string of abbreviations, or a list of string names for the parameters we want, e.g. 'maximum',
+        'minimum', 'mean', 'standard deviation'. The index starts at 2, because the first two elements in the tuple, is
+        the id, and the band number.
+    :param param:   A string, or array of strings which specify what parameters we want to get from the query.
+    :param val:     The specific value (e.g. max, min, etc.) we want the index.
+    :type param:    list of [str]
+    :type val:      str
+    :return:        The index of the given value in the param
+    :rtype:         int
+    """
+    index_shift = 2
+    relative_index = param.index(val)
+    return relative_index + index_shift
