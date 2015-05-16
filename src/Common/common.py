@@ -72,8 +72,8 @@ def get_histogram(roi_list, targets,  count_points=True):
                                 If count is set to True, the function returns a dictionary of targets (including
                                 'background') that has the frequency of each target.
 
-    :type roi_list:             list[ROI]
-    :type targets:              list[str]
+    :type roi_list:             list of [ROI]
+    :type targets:              list of [str]
     :type count_points:         bool
     :rtype:                     dict of [str, int] | ClassificationDataSet
     """

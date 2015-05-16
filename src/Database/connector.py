@@ -31,12 +31,23 @@ def connect():
     # return db.get_connection()
 
 
-def create_tables(overwrite=False, debug=True):
+def create_tables(overwrite=False, debug=False):
     """
         Creates all the tables necessary for the regions of interest to be in the Database. If 'overwrite' is set to
         True, then, if there is any previous databases with the same name as in settings.py, it will be dropped.
-    :return:
+    :param overwrite:   Toggles whether or not the database will be overwritten, or not. Default is False.
+                        NB! If set to True, the database will be overwritten!
+    :param debug:       Toggles whether or not debug info will be displayed in the console. Default is False.
+    :type overwrite:    bool
+    :type debug:        bool
+    :return:            None
+    :rtype:             None
     """
+    if overwrite:
+        choise = input("Are you really sure you want to overwrite the entire database? This cannot be undone. ")
+        if choise.lower() == 'yes' or choise.lower() == 'y':
+            overwrite = False
+            print("The database will NOT be overwritten. Continuing.")
     db.create_database(overwrite=overwrite, debug=debug)
 
 
@@ -51,7 +62,7 @@ def roi_to_database(roi, add_wavelengths=False, debug=False, force_load=False, c
     :param force_load:      Toggle whether or not the actual data in the regions of interest is to be read. Default is
                             False
     :param commit_at_end:   Toggles whether or not all the changes are to be committed at the end. Default is False.
-    :type roi:              RegionsOfInterest
+    :type roi:              RegionOfInterest.regions_of_interest.RegionsOfInterest
     :type add_wavelengths:  bool
     :type debug:            bool
     :type force_load:       bool
@@ -137,8 +148,8 @@ def add_region(roi, dataset):
     :param dataset: The data set (e.g. MASTER r19) we would like to add the region to.
     :type roi:      RegionOfInterest.region.Region
     :type dataset:  Dataset
-    :return:        None
-    :rtype:         None
+    :return:        The added/created database Region
+    :rtype:         RegionOfInterest.region.Region
     """
     region = Region(dataset=dataset,
                     name=roi.name,
@@ -155,8 +166,8 @@ def add_point(region, point):
     :param point:   The point which will be added
     :type region:   Database.database_definition.Region
     :type point:    RegionOfInterest.region.Point
-    :return:        None
-    :rtype:         None
+    :return:        The added/created point for further 'handling'.
+    :rtype:         Database.database_definition.Region
     """
     xy_point = point_to_postgres_point(point.X, point.Y)
     relative_point = point_to_postgres_point(point.map_X, point.map_Y)
@@ -247,15 +258,15 @@ def add_wavelength_to_points(spectral_type, dataset, commit_at_end=False):
         FROM spectrum, point, region, dataset
         WHERE spectrum.point = point.id AND
         point.region = region.id AND
-        region.dataset = $datasetID;
-        """)
+        region.dataset = """ + str(datasetID) + ";"
+    )
     for (spectrumID, bandNR, value, point) in stuff:
         db.execute(
             """
-            UPDATE spectrum SET wavelength = $bandNR
+            UPDATE spectrum SET wavelength = """ + str(bandNR) + """
             WHERE id = (SELECT id FROM wavelengths
-                        WHERE name = $spectralType AND band_nr = $bandNR)
-            """)
+                        WHERE name = """ + spectralType + " AND band_nr = " + str(bandNR) + ")"
+        )
     if not commit_at_end:
         db.commit()
 
@@ -309,7 +320,17 @@ Methods for deleting stuff
 """
 
 
-def remove_region(name, subname):
+def remove_region(name, subname=""):
+    """
+        Removes the given region from the database.
+    :param name:    The name of the region that is to be removed.
+    :param subname: The sub-name of the region to be removed. If none is given (""), then all regions which bears the
+                    given name will be removed.
+    :type name:     str
+    :type subname:  str
+    :return:        None
+    :rtype:         None
+    """
     pass
     # db.entities.
 

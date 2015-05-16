@@ -3,19 +3,13 @@
 Classes and methods for reading, and interpreting the data from a ASCII ROI file.
 """
 __author__ = 'Sindre Nistad'
-import sys
+
+from pickle import dump, load, HIGHEST_PROTOCOL
 
 from Common.common import get_histogram, extract_name, list_to_string
 from Common.data_management import read_data_from_file, read_normalizing_data
 from RegionOfInterest.region import ROI
 from Common.common import strip_and_add_space, is_min_max, is_gaussian
-
-if sys.version_info.major == 2:
-    from cPickle import dump, load, HIGHEST_PROTOCOL
-elif sys.version_info.major == 3:
-    from pickle import dump, load, HIGHEST_PROTOCOL
-else:
-    Exception("Are you really using Python 1.x?!")
 
 
 class RegionsOfInterest(object):
@@ -288,6 +282,13 @@ class RegionsOfInterest(object):
         self.is_normalized = True
 
     def absolutize(self, mode='min-max'):
+        """
+            Method for reversing the normalized data into 'raw' data.
+        :param mode:    The mode for which the normalization is to be reversed. May be 'min-max', or 'gaussian'.
+                        Default is min-max.
+        :type mode:     str
+        :return:        None
+        """
         if mode == 'min-max' or mode == 'max-min':
             self._absolutize_min_max()
         elif mode == 'gaussian' or mode == 'gauss':

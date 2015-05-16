@@ -94,7 +94,21 @@ def export_to_csv(delimiter=",", normalized=True):
         roi.save_to_csv(delimiter)
 
 
-def export_to_potgres(add_wavelengths=False, debug=False, start_index=0, force_load=False):
+def export_to_postgres(add_wavelengths=False, debug=False, start_index=0, force_load=False):
+    """
+       This is a wrapper method for loading the regions of interest into the database.
+    :param add_wavelengths: Toggle whether or not information about wavelengths is to be added. Default is False,
+                            as it takes quite a while, and is not strictly necessary.
+    :param debug:           Toggle whether or not debug information is to be written to the console. Default is False
+    :param start_index:     Which dataset are we to start at? Default is 0.
+    :param force_load:      Toggle whether or not the actual data in the regions of interest is to be read.
+                            Default is False
+    :type add_wavelengths:  bool
+    :type debug:            bool
+    :type start_index:      int
+    :type force_load:       bool
+    :return:
+    """
     if debug:
         n = len(get_all_rois(read_data=False))
         i = 0

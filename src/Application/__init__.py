@@ -1,1 +1,2 @@
-__author__ = 'sindrenistad'
+# -*- coding: utf-8 -*-
+__author__ = 'Sindre Nistad'

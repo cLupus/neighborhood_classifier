@@ -5,7 +5,7 @@
 __author__ = 'Sindre Nistad'
 
 from warnings import warn
-from cPickle import dump, load, HIGHEST_PROTOCOL
+from pickle import dump, load, HIGHEST_PROTOCOL
 from math import ceil
 
 from pybrain.datasets import ClassificationDataSet
@@ -209,6 +209,7 @@ class ClassificationNet(object):
                                                        continue_epochs, validation_proportion)
 
     def set_target(self, target):
+        # TODO: Implement?
         pass
 
     def save(self, path):
@@ -325,6 +326,12 @@ def build_net(indim, hiddendim, outdim):
 
 
 def make_nets(targets):
+    """
+        Creates a new neural network.
+    :param targets: The targets we want to train a network for.
+    :type targets:  list of [str]
+    :return:
+    """
     nets = {}
     for target in targets:
         nets[target] = ClassificationNet()

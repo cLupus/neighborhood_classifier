@@ -6,6 +6,9 @@ from __future__ import division
 
 __author__ = 'Sindre Nistad'
 
+"""
+The different names of classes in each dataset
+"""
 CLASSES = {
     'master_r19': [
         'BAPI',
@@ -55,6 +58,48 @@ CLASSES = {
         'rock',
         'ADFA'
     ],
+    'aviris_r20': [
+        'RDP',
+        'golfcourse',
+        'EUSP',
+        'BRNI',
+        'BAPI',
+        'MARSH',
+        'bapi',
+        'soil',
+    ],
+    'aviris_r21': [
+        'BAPI',
+        'BRNI',
+        'CISP',
+        'DTR',
+        'EUSP',
+        'MARSH',
+        'PEAM',
+        'PLRA',
+        'RDP',
+        'agsoil',
+        'bapi',
+        'golfcourse',
+        'soil',
+        'urban',
+    ],
+    'aviris_r22': [
+        'BRNI',
+        'CEME',
+        'CESP',
+        'CISP',
+        'DTR',
+        'DTRN',
+        'EUSP',
+        'PEAM',
+        'PLRA',
+        'RDP',
+        'grassland',
+        'plra',
+        'rock',
+        'soil',
+    ]
 }
 
 WAVELENGTHS = {
@@ -84,7 +129,7 @@ WAVELENGTHS = {
             2.367100, 2.377100, 2.387000, 2.396900, 2.406900, 2.416800, 2.426800, 2.436700, 2.446600, 2.456500,
             2.466500, 2.476400, 2.486300, 2.496200
         ],
-        'unit': 'micrometer'
+        'unit': 'micrometer',
     },
     'MASTER': {
         'wavelengths': [
@@ -96,6 +141,10 @@ WAVELENGTHS = {
         'unit': 'micrometer',
     }
 }
+
+"""
+Adds wave numbers to the datasets
+"""
 
 WAVELENGTHS['AVIRIS']['wave number'] = [
     1 / wvl * 10 ** 6 for wvl in reversed(WAVELENGTHS['AVIRIS']['wavelengths'])
@@ -113,24 +162,42 @@ UNITS = {
     'nanometer': 10 ** -9,
 }
 
+"""
+Methods for changing the unit of measurement of the wavelengths.
+"""
 
-def set_unit(self, unit, dataset=""):
+
+def set_unit(unit, dataset=""):
+    """
+        Changes the units of the dataset (AVISIR/MASTER), or both if left blank to the given units.
+    :param unit:    The unit we want the dataset(s) to be in, e.g. micrometers, nanometers, etc.
+    :param dataset: The dataset the units are to be changed. If none is specified, it will change the units for all
+                    datasets. The options for datasets is MASTER, and AVIRIS.
+    :type unit:     str
+    :type dataset:  str
+    """
     dataset = dataset.upper()
     if dataset is 'AVIRIS':
-        self._set_unit(unit, 'AVIRIS')
+        _set_unit(unit, 'AVIRIS')
     elif dataset is 'MASTER':
-        self._set_unit(unit, 'MASTER')
+        _set_unit(unit, 'MASTER')
     else:
-        self._set_unit(unit, 'AVIRIS')
-        self._set_unit(unit, 'MASTER')
+        _set_unit(unit, 'AVIRIS')
+        _set_unit(unit, 'MASTER')
 
 
 def _set_unit(unit, dataset):
     """
-
+        Helper method for set_unit. Does the actual conversion between different units
+    :param unit:
+    :param dataset:
+    :type unit:
+    :type dataset:
     """
+    current_unit = WAVELENGTHS[dataset]['unit']
+    conversion_factor = UNITS[unit] / UNITS[current_unit]
     WAVELENGTHS[dataset]['wavelengths'] = [
-        wvl * UNITS[unit] / WAVELENGTHS[dataset]['unit']
+        wvl * conversion_factor
         for wvl in WAVELENGTHS[dataset]['wavelengths']
     ]
     WAVELENGTHS[dataset]['unit'] = unit

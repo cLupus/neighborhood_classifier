@@ -66,24 +66,6 @@ class ROI(object):
         self.points = sorted(self.points, key=expression)
         self.sorted_mode = mode
 
-    def find_point(self, x, y, mode='x-y', closest=False):
-        """
-            Finds the (closest) point to a given coordinate in this region of interest. The method uses binary search
-            if the points are sorted according to the mode.
-        :param x:           The desired 'x'-coordinate.
-        :param y:           The desired 'y'-coordinate.
-        :param mode:        The mode in which we wish to search the coordinates: local X-Y, global X-Y,
-                            or latitude, and longitude. The default is local X-Y.
-        :param closest:     Toggles whether or not you want the closest point to be returned
-                            if no exact match was found.
-        :return:            The point (closest) to the given coordinates.
-        :rtype:             Point
-        """
-        if self.sorted_mode == mode:
-            return self._binary_search(x, y, mode, closest)
-        else:
-            return self._linear_search(x, y, mode, closest)
-
     def add_point(self, point):
         """
             Adds the given point to the list of points in the region of interest.

@@ -7,7 +7,7 @@ __author__ = 'Sindre Nistad'
 from warnings import warn
 
 from Classifier.neural_network import ClassificationNet
-from common import get_index
+from Common.common import get_index
 
 
 def apply_to_image(img, neural_network, normalized_img=False):
@@ -38,7 +38,7 @@ def apply_to_image(img, neural_network, normalized_img=False):
         for col in range(buffer_size, cols - buffer_size):
             neigborhood = get_neigborhood(img, row, col, neural_network.neigborhood_size)
             classified_img[col][row] = neural_network.neural_net.activate()
-            #TODO
+            # TODO: Implement
 
 
 def get_neigborhood(img, row, col, neigborhood_size, concatenated=True):
