@@ -9,7 +9,9 @@ from warnings import warn
 
 import pony.orm as pny
 from pony.orm import db_session
+import numpy as np
 
+from Database.Connector.helpers import select_sql_point
 from Database.database_definition import db, Color, Dataset, Norm, Point, Region, Spectrum, Wavelengths, bind
 from Common.parameters import WAVELENGTHS
 from Common.common import get_one_indexed, is_in_name, string_to_array, is_gaussian, is_min_max
@@ -248,8 +250,6 @@ def add_wavelength_to_points(spectral_type, dataset, commit_at_end=False):
     :type commit_at_end:    bool
     :return:
     """
-    # wavelengths = pny.select(w for w in Wavelengths if w.name == spectral_type).order_by(Wavelengths.band_nr)
-    #wavelengths = wavelengths[:]  # Make it into a list
     spectralType = spectral_type
     datasetID = dataset.id
     stuff = db.execute(
@@ -341,6 +341,54 @@ Methods for getting stuff from the database
 # TODO
 
 
+def get_numpy_array_from_region(region, dataset="", normalizing_mode="", k=0):
+    """
+        Returns all points, and its k nearest neighbors that are in a given region (can be general (only name),
+        or specific (includes sub name). If k is not set explicitly, only the points themselves will be returned. k does
+        not include the point itself.
+        If the normalizing_mode is set to 'min-max', og 'gaussian', the data will be normalized.
+        The dataset is a list, (or a single) data sets the points will be drawn from. If blank, or the list ['MASTER',
+        'AVIRIS'], it will return every point which has the given region as name. If one of then, then all points in the
+        region which are from the given spectrometer. A specific data set can also be specified, e.g. master_r19... in
+        which case, only points in the given data set will be returned. Returns a list of lists of points.
+    :param region:              The region points are taken from.
+    :param dataset:             The dataset(s) the points are part of. Default is to not place any restrictions.
+    :param normalizing_mode:    Toggles whether or not the data is to be normalized, and how the data is to be
+                                normalized. Can be 'min-max', or 'gaussian'. Default is none ("").
+    :param k:                   The number of neighbors that are to be returned with the point. Default is 0;
+                                only the point itself.
+    :type region:               str
+    :type dataset:              list of [str]
+    :type normalizing_mode:     str
+    :type k:                    int
+    :return:                    A 2D NumPy array of spectral data, each point corresponding to one column if k = 0;
+                                we do not consider the neigborhood. If we do consider the neighborhood, then it returns
+                                a 3D NumPy array; each column is a neighborhood, and each column in that matrix is a
+                                'point';
+    :rtype:
+    """
+    points = get_points_from_region(region, dataset, normalizing_mode, k)
+    num_points = len(points)
+    num_neighbors = k
+    # TODO: Make it possible to combine different datasets (MASTER/AVIRIS)
+    if k == 0:
+        num_bands = points[0].bands
+    else:
+        num_bands = points[0][0].bands
+    if num_neighbors == 0:
+        band_matrix = np.empty(num_points, num_bands)
+    else:
+        band_matrix = np.empty(num_points, num_neighbors, num_bands)
+
+    for point_index in range(num_points):
+        # Loop through the points
+        point = num_points[point_index]
+        if num_neighbors > 0:
+            neighbor_matrix = _neighbors_to_matrix(point)
+        else:
+            band_vector = _bands_to_column(point)
+
+
 def get_points_from_region(region, dataset="", normalizing_mode="", k=0):
     """
         Returns all points, and its k nearest neighbors that are in a given region (can be general (only name),
@@ -366,9 +414,10 @@ def get_points_from_region(region, dataset="", normalizing_mode="", k=0):
     """
     points = get_sample(region, dataset, -1)
     if k > 0:
-        neighborhoods = []
-        for point in points:
-            neighborhoods.append(get_nearest_neighbors_to_point(point, k, dataset))
+        neighborhoods = [None] * len(points)
+        for i in range(len(points)):
+            point = points[i]
+            neighborhoods[i] = get_nearest_neighbors_to_point(point, k, dataset)
         if normalizing_mode != "":
             return normalize(neighborhoods, normalizing_mode)
         return neighborhoods
@@ -376,47 +425,6 @@ def get_points_from_region(region, dataset="", normalizing_mode="", k=0):
         if normalizing_mode != "":
             return normalize(points, normalizing_mode)
         return points
-
-
-def select_sql_point(select_criteria=1):
-    """
-        Helper method for getting an appropriate SELECT .. FROM .. [WHERE .. ] query.
-    :param select_criteria: Toggles how much information is to be selected for the point:
-                                1 -> Selects (id, long_lat) from point
-                                2 -> Selects (id, long_lat, region) from point
-                                3 -> Selects (id, long_lat, region, dataset.id) from point, and the dataset
-                                       (combined with region)
-                                4 -> Selects (id, local_location, relative_location, long_lat) from point
-                                5 -> Selects (id, local_location, relative_location, long_lat, region) from point
-                                6 -> Selects (id, local_location, relative_location, long_lat, region, dataset.id)
-                                        from point and the dataset (combined with region)
-                                If the mode is different from these, a warning will be issued, and
-                                mode 1 will be selected.
-    :type select_criteria:  int               
-    :return:                A SQL clause of SELECT ... FROM ... [WHERE ...]. [] indicates that it might not be there:
-                            This is the case for criteria 1, 2, 4, 5
-    :rtype:                 str
-    """
-    if not 1 <= select_criteria <= 6:
-        select_criteria = 1
-    if select_criteria == 1:
-        return "SELECT id, long_lat FROM point "
-    elif select_criteria == 2:
-        return "SELECT id, long_lat, region FROM point "
-    elif select_criteria == 3:
-        return "SELECT point.id, point.long_lat, point.region, dataset.id FROM point, region, dataset " \
-               "WHERE point.region = region.id AND region.dataset = dataset.id "
-    elif select_criteria == 4:
-        return "SELECT id, local_location, relative_location, long_lat FROM point "
-    elif select_criteria == 5:
-        return "SELECT id, local_location, relative_location, long_lat, region FROM point "
-    elif select_criteria == 6:
-        return "SELECT point.id, point.local_location, point.relative_location, point.long_lat, point.region, " \
-               "dataset.id " \
-               "FROM point, region, dataset " \
-               "WHERE point.region = region.id AND region.dataset = dataset.id "
-    else:
-        raise Exception("Something very wrong happened...")
 
 
 @db_session
@@ -446,7 +454,7 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
                                         from point and the dataset (combined with region)
                                 If the mode is different from these, a warning will be issued, and
                                 mode 1 will be selected.
-                                NB: When mode 3, or 6 are not selected, the set will not be normalized!
+                                NB: When mode 3, or 6 is NOT selected, the set will not be normalized!
     :type point:            RegionOfInterest.region.Point | Point | RegionOfInterest.region.BasePoint
     :type k:                int
     :type dataset:          list of [str] | str
@@ -467,8 +475,8 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
     else:
         raise TypeError("The type for point is not supported. The type of point is ", type(point))
     select_from_sql = select_sql_point(select_criteria)
-    order_by_sql = "ORDER BY point.long_lat <-> '(" + str(longitude) + ", " + str(latitude) + ")'::point LIMIT " + str(
-        k) + ";"
+    order_by_sql = "ORDER BY point.long_lat <-> '(" \
+                   + str(longitude) + ", " + str(latitude) + ")'::point LIMIT " + str(k) + ";"
     if ignore_dataset:
         sql = select_from_sql + order_by_sql
     else:
@@ -482,6 +490,52 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
     query = db.execute(sql)
     points = query_to_point_list(query, normalize_mode)
     return points
+
+
+def get_nearest_neighbor_to_points(points, k, dataset, normalize_mode="",
+                                   ignore_dataset=False, select_criteria=3):
+    """
+        This method does the same as get_nearest_neighbor_to_point for a list of points.
+        Returns the k-nearest neighbors for the given points. (This method will return k + 1 points in a
+        list, as the given point will be included, unless include_point is set to False)
+        If the ignore_dataset flag is set to True, we will not care about the points belonging to the same dataset.
+
+        NB: When mode (selection_criteria) 3, or 6 are not selected, the set will not be normalized!
+    :param points:          The list of points we are interested in finding nearest neighbors to.
+    :param k:               The number of nearest neighbors we want to find.
+    :param dataset:         The dataset(s) we want to get the points from. Can be None, as it is not necessary when
+                            ignore_dataset is True, but must be specified if ignore_dataset is True.
+    :param ignore_dataset:  Toggles whether or not we will consider the dataset a point belongs to, when searching for
+                            nearest neighbor, e.g. ignore to which sensor the data came from. Default is False.
+    :param normalize_mode:  Selects the mode of normalization; may be 'min-max', 'gaussian', or "". Default is ""
+    :param select_criteria: Toggles how much information is to be selected for the point:
+                                1 -> Selects (id, long_lat) from point
+                                2 -> Selects (id, long_lat, region) from point
+                                3 -> Selects (id, long_lat, region, dataset.id) from point, and the dataset
+                                       (combined with region)
+                                4 -> Selects (id, local_location, relative_location, long_lat) from point
+                                5 -> Selects (id, local_location, relative_location, long_lat, region) from point
+                                6 -> Selects (id, local_location, relative_location, long_lat, region, dataset.id)
+                                        from point and the dataset (combined with region)
+                                If the mode is different from these, a warning will be issued, and
+                                mode 1 will be selected.
+                                NB: When mode 3, or 6 is NOT selected, the set will not be normalized!
+    :type points:           list of [RegionOfInterest.region.Point | Point | RegionOfInterest.region.BasePoint]
+    :type k:                int
+    :type dataset:          list of [str] | str
+    :type normalize_mode:   str
+    :type ignore_dataset:   bool
+    :type select_criteria:  int
+    :return:                list of List of points sorted in ascending order by how close they are to the given point.
+                            One list for each point in the input list.
+    :rtype:                 list of [list of [RegionOfInterest.region.BasePoint | Point]]
+    """
+    neighbors = [None] * len(points)
+    for i in range(len(points)):
+        point = points[i]
+        neighbors[i] = get_nearest_neighbors_to_point(point, k, dataset, normalize_mode, ignore_dataset,
+                                                      select_criteria)
+    return neighbors
 
 
 def get_min_max(datasets="", be_assertive=False):
@@ -516,22 +570,6 @@ def get_mean_std(datasets="", be_assertive=False):
     :rtype:                 list of [dict of [int, list of [float]]]
     """
     return get_normalizing_data(['mean', 'standard deviation'], datasets, be_assertive)
-
-
-def _order_results(order, result):
-    """
-        Orders the result in the given order, and returns a list of the result
-    :param order:   The order in which you want the results.
-    :param result:  The dictionary of results from get_normalizing_data
-    :type order:    list of [str]
-    :type result:   dict of [str, list of [float]]
-    :return:        An ordered list of parameters.
-    :rtype:         list of [list of [float]]
-    """
-    l = []
-    for elm in order:
-        l.append(result[elm])
-    return l
 
 
 @db_session
@@ -577,6 +615,7 @@ def get_normalizing_data(params, datasets="", be_assertive=False):
             if dataset not in maximums:
                 # We have not yet added the bands for this dataset
                 maximums[dataset] = []
+                # TODO: Set initial size, to speed thing up
             maximum = query_tuple[_index_of_param(params, 'maximum')]
             maximums[dataset].append(maximum)  # Is ordered by band_nr
             if be_assertive:
@@ -616,49 +655,6 @@ def get_normalizing_data(params, datasets="", be_assertive=False):
     return _order_results(params, result)
 
 
-def _min_max_normalize(point, minimums, maximums):
-    """
-    Helper method for normalizing the given point in a min-max fashion.
-    :param point:       The point we want to normalize in a min/max fashion.
-    :param minimums:    The minimums for the datasets, or a list of maximums fore each band, for this specific point.
-    :param maximums:    The maximums for the datasets, or a list of maximums fore each band, for this specific point.
-    :type point:        BasePoint
-    :type minimums:     dict of [int, list of [float]] | list of [float]
-    :type maximums:     dict of [int, list of [float]] | list of [float]
-    :return:
-    """
-    if isinstance(maximums, dict):
-        maximums = maximums[point.dataset_id]
-    if isinstance(minimums, dict):
-        minimums = minimums[point.dataset_id]
-    for i in range(len(point.bands)):
-        band = point.bands[i]
-        band = (band - minimums[i]) / (maximums[i] - minimums[i])
-        point.bands[i] = band
-
-
-def _gaussian_normalize(point, means, std_devs):
-    """
-    Helper method for normalizing the given point in a min-max fashion.
-    :param point:       The point we want to normalize in a min/max fashion.
-    :param means:       The means for the datasets, or a list of means for each band, for this specific point.
-    :param std_devs:    The standard deviations for the datasets, or a list of standard deviations for each band,
-                        for this specific point.
-    :type point:        BasePoint
-    :type means:        dict of [int, list of [float]] | list of [float]
-    :type std_devs:     dict of [int, list of [float]] | list of [float]
-    :return:
-    """
-    if isinstance(means, dict):
-        means = means[point.dataset_id]
-    if isinstance(std_devs, dict):
-        std_devs = std_devs[point.dataset_id]
-    for i in range(len(point.bands)):
-        band = point.bands[i]
-        band = (band - means[i]) / std_devs[i]
-        point.bands[i] = band
-
-
 def normalize(points, mode=""):
     """
         Normalizes the given set of points according to the given mode. If the mode is not set, the method will not do
@@ -692,24 +688,34 @@ def normalize(points, mode=""):
     return points
 
 
-def query_to_point_list(query, normalize_mode=""):
+def query_to_point_list(query, normalize_mode="", number_of_elements=-1):
     """
         Takes a query of points (id, long_lat, region), or everything from point, gets the spectrum for each point,
         and then creates a list of BasePoints, or Points.
         If you want a point, the query has to have the following
         (id, local_location, relative_location, long_lat, region)
-    :param query:           The query, which has selected (id, region, long_lat) for the points.
-    :param normalize_mode:  Is the data to be normalized? Can be blank "" -> No normalization. 'min-max' -> normalizes
-                            the data by minimums, and maximums (rescales). 'gaussian' -> (val - mean) / std.
-                            Default is no normalization.
-    :type query:            psycopg2.extensions.cursor
-    :type normalize_mode:   str
-    :return:                List of BasePoints/Points with their spectrum.
-    :rtype:                 list of [RegionOfInterest.region.BasePoint | RegionOfInterest.region.Point]
+    :param query:               The query, which has selected (id, region, long_lat) for the points.
+    :param normalize_mode:      Is  the data to be normalized? Can be blank "" -> No normalization.
+                                'min-max' -> normalizes the data by minimums, and maximums (rescales).
+                                'gaussian' -> (val - mean) / std. Default is no normalization.
+    :param number_of_elements:  To speed things up, you can specify the number number of elements that will be in the
+                                query.
+    :type query:                psycopg2.extensions.cursor
+    :type normalize_mode:       str
+    :type number_of_elements:   int
+    :return:                    List of BasePoints/Points with their spectrum.
+    :rtype:                     list of [RegionOfInterest.region.BasePoint | RegionOfInterest.region.Point]
     """
-    points = []
-    for point_tuple in query:
-        points.append(get_point(point_tuple))
+    if number_of_elements > 0:
+        points = [None] * number_of_elements
+        i = 0
+        for point_tuple in query:
+            points[i] = point_tuple
+            i += 1
+    else:
+        points = []
+        for point_tuple in query:
+            points.append(get_point(point_tuple))
     if normalize_mode != "":
         points = normalize(points, normalize_mode)
     return points
@@ -769,7 +775,7 @@ def get_point(point_tuple):
 
 
 @db_session
-def get_sample(area, dataset, number_of_samples, background=False, random_sample=False):
+def get_sample(area, dataset, number_of_samples, k=0, background=False, random_sample=False):
     """
         Returns a random sample of number_of_samples points which lies in the given area (which may be regions, or a
         specific region when given a sub-name; e.g. name_sub-name, or just name for the value of area. If background
@@ -782,6 +788,7 @@ def get_sample(area, dataset, number_of_samples, background=False, random_sample
                                 datasets, and which case the points can be from any of them.
     :param number_of_samples:   The number of samples we want. This can be set to -1 (negative) in which case, every
                                 point that satisfy the query is selected.
+    :param k:                   The number of neighbors to each point we want to get.
     :param background:          Toggles whether or not the returned set is from the actual region, or from the
                                 'background' of that region, e.i. anything but that region.
     :param random_sample:       Toggles whether or not the sample is to be randomized or not. Default is not, as it is
@@ -789,6 +796,7 @@ def get_sample(area, dataset, number_of_samples, background=False, random_sample
     :type area:                 str
     :type dataset:              str | list of [str]
     :type number_of_samples:    int
+    :type k:                    int
     :type background:           bool
     :type random_sample:        bool
     :return:                    A list of points which constitutes a sample from the given region, or a list of points
@@ -830,7 +838,11 @@ def get_sample(area, dataset, number_of_samples, background=False, random_sample
         limit_sql = ""
     sql = select_sql + where_sql + dataset_sql + order_by_sql + limit_sql + ";"
     query = db.execute(sql)
-    return query_to_point_list(query)
+    points = query_to_point_list(query, number_of_elements=number_of_samples)
+    if k == 0:
+        return points
+    else:
+        return get_nearest_neighbor_to_points(points, k, dataset)
 
 
 def point_to_postgres_point(*args):
@@ -904,3 +916,88 @@ def _index_of_param(param, val):
     index_shift = 2
     relative_index = param.index(val)
     return relative_index + index_shift
+
+
+def _min_max_normalize(point, minimums, maximums):
+    """
+    Helper method for normalizing the given point in a min-max fashion.
+    :param point:       The point we want to normalize in a min/max fashion.
+    :param minimums:    The minimums for the datasets, or a list of maximums fore each band, for this specific point.
+    :param maximums:    The maximums for the datasets, or a list of maximums fore each band, for this specific point.
+    :type point:        BasePoint
+    :type minimums:     dict of [int, list of [float]] | list of [float]
+    :type maximums:     dict of [int, list of [float]] | list of [float]
+    :return:
+    """
+    if isinstance(maximums, dict):
+        maximums = maximums[point.dataset_id]
+    if isinstance(minimums, dict):
+        minimums = minimums[point.dataset_id]
+    for i in range(len(point.bands)):
+        band = point.bands[i]
+        band = (band - minimums[i]) / (maximums[i] - minimums[i])
+        point.bands[i] = band
+
+
+def _gaussian_normalize(point, means, std_devs):
+    """
+    Helper method for normalizing the given point in a min-max fashion.
+    :param point:       The point we want to normalize in a min/max fashion.
+    :param means:       The means for the datasets, or a list of means for each band, for this specific point.
+    :param std_devs:    The standard deviations for the datasets, or a list of standard deviations for each band,
+                        for this specific point.
+    :type point:        BasePoint
+    :type means:        dict of [int, list of [float]] | list of [float]
+    :type std_devs:     dict of [int, list of [float]] | list of [float]
+    :return:
+    """
+    if isinstance(means, dict):
+        means = means[point.dataset_id]
+    if isinstance(std_devs, dict):
+        std_devs = std_devs[point.dataset_id]
+    for i in range(len(point.bands)):
+        band = point.bands[i]
+        band = (band - means[i]) / std_devs[i]
+        point.bands[i] = band
+
+
+def _order_results(order, result):
+    """
+        Orders the result in the given order, and returns a list of the result
+    :param order:   The order in which you want the results.
+    :param result:  The dictionary of results from get_normalizing_data
+    :type order:    list of [str]
+    :type result:   dict of [str, list of [float]]
+    :return:        An ordered list of parameters.
+    :rtype:         list of [list of [float]]
+    """
+    l = []
+    for elm in order:
+        l.append(result[elm])
+    return l
+
+
+def _bands_to_column(point):
+    """
+    Takes a point, and converts the bands into an NumPy array (row)
+    :param point:   A (Base)Point object from which we wish to extract the spectrum from.
+    :type point:    BasePoint
+    :return:        A row of floats representing the spectrum of the given point.
+    :rtype:         np.array
+    """
+    bands = point.bands
+    spectrum = np.array(bands)  # Converts the bands to a NumPy array
+    # spectrum = spectrum.reshape(len(bands), 1)  # Transposes a row vector to a column vector
+    return spectrum
+
+
+def _neighbors_to_matrix(points):
+    """
+    Converts a list of points (neighbors) to a NumPy matrix, where each row corresponds to a point's spectrum.
+    :param points:  The neighborhood/list of points we want to convert to a NumPy matrix.
+    :type points:   list of [regions_of_interest.region.BasePoint]
+    :return:        A NumPy matrix (array of array) where each row is a point's spectrum
+    """
+    return np.array([point.bands for point in points])
+
+
