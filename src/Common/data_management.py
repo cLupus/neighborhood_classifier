@@ -11,8 +11,6 @@ from random import random
 
 from warnings import warn
 
-from pybrain.datasets import ClassificationDataSet
-
 from Common.common import get_neighbors
 from Common.common import get_histogram, extract_name, split_numbers
 from RegionOfInterest.region import Point, ROI
@@ -270,43 +268,6 @@ def _read(data_file, delimiter=None):
 Load data
 Primarily for loading data from a regions of interest object to a data set.
 """
-
-
-def load_data_set_from_regions_of_interest(roi_obj, targets, neighborhood_size,
-                                           targets_background_ratios=None, have_background=True):
-    """
-        A method that loads the data set from a RegionsOfInterest object, to a ClassificationDataSet.
-        Only the relevant targets needs to be specified, as background will be added automatically.
-    :param roi_obj:                     The ROI object
-    :param targets:                     The list of targets (may contain only one + background)
-    :param neighborhood_size:           The diameter of the neighborhood
-    :param targets_background_ratios:   Specify the ratio of the number target pixels to the number of
-                                        background pixels. The default is to not use it, but it can be useful when
-                                        num targets <<< num background. It is per target excluding background.
-    :param have_background:             Toggles whether or not we are to use a background class. Default is yes.
-
-    :type roi_obj:                      RegionsOfInterest
-    :type targets:                      list[str]
-    :type neighborhood_size:            int
-    :type targets_background_ratios:    list of [float] | dict of [str, float]
-    :type have_background:              bool
-    :return:                            A data set sorting all the points of the regions of interest according to
-                                        'target' and 'background'.
-    :rtype:                             ClassificationDataSet
-    """
-
-    if have_background and 'background' not in targets:
-        targets.append('background')
-
-    data_set = ClassificationDataSet(neighborhood_size ** 2 * roi_obj.num_bands,
-                                     1,
-                                     nb_classes=len(targets),
-                                     class_labels=targets)
-    if targets_background_ratios is not None:
-        assert len(targets) == len(targets_background_ratios)
-        return _load_limited_data(roi_obj, data_set, targets, neighborhood_size, targets_background_ratios)
-    else:
-        return _load_regular_data(roi_obj, data_set, targets, neighborhood_size)
 
 
 def _load_limited_data(roi_obj, data_set, targets, neighborhood_size, targets_background_ratio):

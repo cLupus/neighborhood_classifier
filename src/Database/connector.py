@@ -11,9 +11,9 @@ import pony.orm as pny
 from pony.orm import db_session
 import numpy as np
 
-from Database.Connector.helpers import select_sql_point
+from Database.helpers import select_sql_point
 from Database.database_definition import db, Color, Dataset, Norm, Point, Region, Spectrum, Wavelengths, bind
-from Common.parameters import WAVELENGTHS
+from Common.parameters import WAVELENGTHS, NUMBER_OF_USED_BANDS
 from Common.common import get_one_indexed, is_in_name, string_to_array, is_gaussian, is_min_max
 from RegionOfInterest.region import BasePoint
 from RegionOfInterest.region import Point as ROIPoint
@@ -368,25 +368,29 @@ def get_numpy_array_from_region(region, dataset="", normalizing_mode="", k=0):
     :rtype:
     """
     points = get_points_from_region(region, dataset, normalizing_mode, k)
-    num_points = len(points)
-    num_neighbors = k
-    # TODO: Make it possible to combine different datasets (MASTER/AVIRIS)
-    if k == 0:
-        num_bands = points[0].bands
-    else:
-        num_bands = points[0][0].bands
-    if num_neighbors == 0:
-        band_matrix = np.empty(num_points, num_bands)
-    else:
-        band_matrix = np.empty(num_points, num_neighbors, num_bands)
+    return convert_points_to_numpy_array(points)
 
-    for point_index in range(num_points):
-        # Loop through the points
-        point = num_points[point_index]
-        if num_neighbors > 0:
-            neighbor_matrix = _neighbors_to_matrix(point)
-        else:
-            band_vector = _bands_to_column(point)
+
+def convert_points_to_numpy_array(points):
+    """
+    Converts a list of points, or neighbors to a numpy array of appropriate size.
+    :param points:  A list (of list) of points that will be converted into a numpy array/matrix.
+    :type points:   list of [BasePoint] | list of [list of [BasePoint]]
+    :return:        A 2D NumPy array of spectral data, each point corresponding to one column if k = 0;
+                    we do not consider the neigborhood. If we do consider the neighborhood, then it returns
+                    a 3D NumPy array; each column is a neighborhood, and each column in that matrix is a 'point';
+    """
+    num_points = len(points)
+    if isinstance(points[0], BasePoint):
+        num_neighbors = 0
+    else:
+        num_neighbors = len(points[0])
+    # TODO: Make it possible to combine different datasets (MASTER/AVIRIS)
+    if num_neighbors == 0:
+        band_matrix = np.array([point.bands for point in points])
+    else:
+        band_matrix = np.array([[p.bands for p in neighbor] for neighbor in points])
+    return band_matrix
 
 
 def get_points_from_region(region, dataset="", normalizing_mode="", k=0):
@@ -412,7 +416,12 @@ def get_points_from_region(region, dataset="", normalizing_mode="", k=0):
     :return:                    List of list of points, with their neighbors
     :rtype:                     list of [list of [RegionOfInterest.region.Point]]
     """
-    points = get_sample(region, dataset, -1)
+    if normalizing_mode == "":
+        # We are not interested in normalizing the data
+        select_criteria = 1
+    else:
+        select_criteria = 3
+    points = get_sample(region, dataset, -1, select_criteria=select_criteria)
     if k > 0:
         neighborhoods = [None] * len(points)
         for i in range(len(points)):
@@ -538,42 +547,78 @@ def get_nearest_neighbor_to_points(points, k, dataset, normalize_mode="",
     return neighbors
 
 
-def get_min_max(datasets="", be_assertive=False):
+def get_min_max(datasets="", be_assertive=False, take_averages=False):
     """
         Gets a dict of list og minimums, and maximums for each datasets. This can be refined to give the minimums, and
         maximums for specified datasets.
     :param datasets:        A single datasets, or a list of datasets.
     :param be_assertive:    Toggles whether or not we want to assert that the bands are in the right order. By default
                             this is False, but should not be necessary.
+    :param take_averages:   Toggles whether or not the average value of the normalizing data (over datasets) is to be
+                            used or not. Default is False.
     :type datasets:         str | list of [str]
     :type be_assertive:     bool
+    :type take_averages:    bool
     :return:                A dict of lists with the minimums and maximums for the given datasets; e.i. two lists, one
                             for maximums, and one for minimums. Each of these contain a dictionary that uses the dataset
                             id as a key and a list of band/a spectrum for each entry.
     :rtype:                 list of [dict of [int, list of [float]]]
     """
-    return get_normalizing_data(['minimum', 'maximum'], datasets, be_assertive)
+    return get_normalizing_data(['minimum', 'maximum'], datasets, be_assertive, take_averages)
 
 
-def get_mean_std(datasets="", be_assertive=False):
+def get_mean_std(datasets="", be_assertive=False, take_averages=False):
     """
         Gets a dict of list og means, and standard deviations for each datasets. This can be refined to give the
         means, and standard deviations for specified datasets.
     :param datasets:        A single datasets, or a list of datasets.
     :param be_assertive:    Toggles whether or not we want to assert that the bands are in the right order. By default
                             this is False, but should not be necessary.
+    :param take_averages:   Toggles whether or not the average value of the normalizing data (over datasets) is to be
+                            used or not. Default is False.
     :type datasets:         str | list of [str]
     :type be_assertive:     bool
+    :type take_averages:    bool
     :return:                A dict of lists with the means, and standard deviations for the given datasets;
                             e.i. two lists, one for standard deviations, and one for means. Each of these contain a
                             dictionary that uses the dataset id as a key and a list of band/a spectrum for each entry.
     :rtype:                 list of [dict of [int, list of [float]]]
     """
-    return get_normalizing_data(['mean', 'standard deviation'], datasets, be_assertive)
+    return get_normalizing_data(['mean', 'standard deviation'], datasets, be_assertive, take_averages)
+
+
+def _average_over_datasets(data):
+    """
+    Takes the averages over the datasets in data for each attribute, minimum, maximum, mean, and standard deviation.
+    :param data:    The data to be averaged.
+    :type data:     dict of [str, dict of [int, list of [float]]]
+    :return:        A dict with the same keys, minimum, maximum, mean, and standard deviation.
+    :rtype:         dict of [str, list of [float]]
+    """
+    result = {}
+    for key in data.keys():
+        normalizing_attribute = data[key]  # e.i. Max, min, etc.
+        # TODO: Handle different lengths
+        result[key] = {
+            'MASTER': [0] * NUMBER_OF_USED_BANDS['MASTER'],
+            'AVIRIS': [0] * NUMBER_OF_USED_BANDS['AVIRIS'],
+            'num_MASTER': 0,
+            'num_AVIRIS': 0
+        }
+        for dataset in normalizing_attribute.keys():
+            if len(dataset) == NUMBER_OF_USED_BANDS['MASTER']:
+                result['MASTER'] = [dataset[i] + result['MASTER'] for i in range(len(dataset))]
+                result['num_MASTER'] += 1
+            elif len(dataset) == NUMBER_OF_USED_BANDS['AVIRIS']:
+                result['AVIRIS'] = [dataset[i] + result['AVIRIS'] for i in range(len(dataset))]
+                result['num_AVIRIS'] += 1
+    result['MASTER'] = [band / result['num_MASTER'] for band in result['MASTER']]
+    result['AVIRIS'] = [band / result['num_AVIRIS'] for band in result['AVIRIS']]
+    return {'MASTER': result['MASTER'], 'AVIRIS': result['AVIRIS']}
 
 
 @db_session
-def get_normalizing_data(params, datasets="", be_assertive=False):
+def get_normalizing_data(params, datasets="", be_assertive=False, take_averages=False):
     """
         Gets a dict of list of minimums, maximums, means, and standard deviations for each datasets.
         This can be refined to give the minimums, maximums, means, and std's for specified datasets.
@@ -581,9 +626,12 @@ def get_normalizing_data(params, datasets="", be_assertive=False):
     :param datasets:        A single datasets, or a list of datasets.
     :param be_assertive:    Toggles whether or not we want to assert that the bands are in the right order. By default
                             this is False, but should not be necessary.
+    :param take_averages:   Toggles whether or not the average value of the normalizing data (over datasets) is to be
+                            used or not. Default is False.
     :type params:           list of [str]
     :type datasets:         str | list of [str]
     :type be_assertive:     bool
+    :type take_averages:    bool
     :return:                A dict of lists with the minimums, maximums, means, std's for the given datasets;
                             e.i. four lists, one for maximums, one for minimums, and so on. Each of these contain a
                             dictionary that uses the dataset id as a key and a list of band/a spectrum for each entry.
@@ -652,6 +700,8 @@ def get_normalizing_data(params, datasets="", be_assertive=False):
         'mean': means,
         'standard deviation': standard_deviations
     }
+    if take_averages:
+        result = _average_over_datasets(result)
     return _order_results(params, result)
 
 
@@ -661,14 +711,19 @@ def normalize(points, mode=""):
         anything, but return the point-set.
     :param points:  A list of points we want to normalize.
     :param mode:    The mode of normalization.
-    :type points:   list of [BasePoint]
+    :type points:   list of [BasePoint] | list of [list of [BasePoint]]
     :type mode:     str
     :return:
     """
+    if (isinstance(points[0], BasePoint) and points[0].dataset_id < 0) or (
+                isinstance(points[0], list) and points[0][0].dataset_id < 0):
+        take_averages = True
+    else:
+        take_averages = False
     if mode == "":
         warn("No normalizing mode was given, so we're just going to return the points as they are")
     elif is_min_max(mode):
-        [minimums, maximums] = get_normalizing_data(['minimum', 'maximum'])
+        [minimums, maximums] = get_normalizing_data(['minimum', 'maximum'], take_averages=take_averages)
         for point in points:
             if isinstance(point, list):
                 for p in point:
@@ -676,7 +731,7 @@ def normalize(points, mode=""):
             else:
                 _min_max_normalize(point, minimums, maximums)
     elif is_gaussian(mode):
-        [means, std_dev] = get_mean_std()
+        [means, std_dev] = get_mean_std(take_averages=take_averages)
         for point in points:
             if isinstance(point, list):
                 for p in point:
@@ -688,7 +743,7 @@ def normalize(points, mode=""):
     return points
 
 
-def query_to_point_list(query, normalize_mode="", number_of_elements=-1):
+def query_to_point_list(query, normalize_mode="", number_of_elements=-1, user_row_count=False):
     """
         Takes a query of points (id, long_lat, region), or everything from point, gets the spectrum for each point,
         and then creates a list of BasePoints, or Points.
@@ -700,17 +755,23 @@ def query_to_point_list(query, normalize_mode="", number_of_elements=-1):
                                 'gaussian' -> (val - mean) / std. Default is no normalization.
     :param number_of_elements:  To speed things up, you can specify the number number of elements that will be in the
                                 query.
+    :param user_row_count:      Toggles whether or not to use the rowcount filed in the query as a parameter of length.
+                                Default is False.
+                                NOTE: This will overwrite whatever value of number_of_elements was passed.
     :type query:                psycopg2.extensions.cursor
     :type normalize_mode:       str
     :type number_of_elements:   int
+    :type user_row_count:       bool
     :return:                    List of BasePoints/Points with their spectrum.
     :rtype:                     list of [RegionOfInterest.region.BasePoint | RegionOfInterest.region.Point]
     """
+    if user_row_count:
+        number_of_elements = query.rowcount
     if number_of_elements > 0:
         points = [None] * number_of_elements
         i = 0
         for point_tuple in query:
-            points[i] = point_tuple
+            points[i] = get_point(point_tuple)
             i += 1
     else:
         points = []
@@ -775,7 +836,7 @@ def get_point(point_tuple):
 
 
 @db_session
-def get_sample(area, dataset, number_of_samples, k=0, background=False, random_sample=False):
+def get_sample(area, dataset, number_of_samples, k=0, select_criteria=1, background=False, random_sample=False):
     """
         Returns a random sample of number_of_samples points which lies in the given area (which may be regions, or a
         specific region when given a sub-name; e.g. name_sub-name, or just name for the value of area. If background
@@ -789,6 +850,19 @@ def get_sample(area, dataset, number_of_samples, k=0, background=False, random_s
     :param number_of_samples:   The number of samples we want. This can be set to -1 (negative) in which case, every
                                 point that satisfy the query is selected.
     :param k:                   The number of neighbors to each point we want to get.
+    :param select_criteria:     Toggles how much information is to be selected for the point:
+                                    1 -> Selects (id, long_lat) from point
+                                    2 -> Selects (id, long_lat, region) from point
+                                    3 -> Selects (id, long_lat, region, dataset.id) from point, and the dataset
+                                           (combined with region)
+                                    4 -> Selects (id, local_location, relative_location, long_lat) from point
+                                    5 -> Selects (id, local_location, relative_location, long_lat, region) from point
+                                    6 -> Selects (id, local_location, relative_location, long_lat, region, dataset.id)
+                                            from point and the dataset (combined with region)
+                                If the mode is different from these, a warning will be issued, and
+                                mode 1 will be selected.
+                                NB: When mode 3, or 6 is NOT selected, the set will not be normalized!
+                                Default is 1.
     :param background:          Toggles whether or not the returned set is from the actual region, or from the
                                 'background' of that region, e.i. anything but that region.
     :param random_sample:       Toggles whether or not the sample is to be randomized or not. Default is not, as it is
@@ -797,6 +871,7 @@ def get_sample(area, dataset, number_of_samples, k=0, background=False, random_s
     :type dataset:              str | list of [str]
     :type number_of_samples:    int
     :type k:                    int
+    :type select_criteria:      int
     :type background:           bool
     :type random_sample:        bool
     :return:                    A list of points which constitutes a sample from the given region, or a list of points
@@ -812,7 +887,7 @@ def get_sample(area, dataset, number_of_samples, k=0, background=False, random_s
         sub_name = ""
 
     # Writing the SQL query
-    select_sql = "SELECT point.id, long_lat, point.region FROM point, region "
+    select_sql = select_sql_point(select_criteria)
     if dataset != "":
         select_sql += ", dataset "
         dataset_sql = dataset_to_string(dataset)
@@ -823,7 +898,11 @@ def get_sample(area, dataset, number_of_samples, k=0, background=False, random_s
         equal_operator = " != "
     else:
         equal_operator = " = "
-    where_sql = " WHERE point.region = region.id AND region.name" + equal_operator + "'" + name + "'"
+    if 'WHERE' in select_sql:
+        where_sql = " AND "
+    else:
+        where_sql = " WHERE "
+    where_sql += "point.region = region.id AND region.name" + equal_operator + "'" + name + "'"
     if sub_name != "":
         where_sql += " AND region.sub_name" + equal_operator + "'" + sub_name + "'"
     if random_sample:
@@ -838,8 +917,8 @@ def get_sample(area, dataset, number_of_samples, k=0, background=False, random_s
         limit_sql = ""
     sql = select_sql + where_sql + dataset_sql + order_by_sql + limit_sql + ";"
     query = db.execute(sql)
-    points = query_to_point_list(query, number_of_elements=number_of_samples)
-    if k == 0:
+    points = query_to_point_list(query, number_of_elements=number_of_samples, user_row_count=True)
+    if k <= 0:
         return points
     else:
         return get_nearest_neighbor_to_points(points, k, dataset)

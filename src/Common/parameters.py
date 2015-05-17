@@ -131,7 +131,7 @@ WAVELENGTHS = {
         ],
         'unit': 'micrometer',
     },
-    'MASTER': {
+    'MASTER': {  # In this case, we only use 5 bands...
         'wavelengths': [
             0.458, 0.496, 0.538, 0.58, 0.652, 0.71, 0.75, 0.8, 0.866, 0.906, 0.946, 1.608, 1.666, 1.718, 1.774,
             1.826, 1.874, 1.924, 1.98, 2.08, 2.16, 2.212, 2.258, 2.32, 2.388, 3.142, 3.292, 3.452, 3.607, 3.757,
@@ -140,6 +140,12 @@ WAVELENGTHS = {
         ],
         'unit': 'micrometer',
     }
+}
+
+NUMBER_OF_USED_BANDS = {
+    'AVIRIS': 178,
+    "MASTER": 5,
+
 }
 
 """
