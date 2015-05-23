@@ -5,7 +5,7 @@ False collection of helper functions for the connector.
 __author__ = 'Sindre Nistad'
 
 
-def select_sql_point(select_criteria=1):
+def select_sql_point(select_criteria=1, extended_point=False):
     """
         Helper method for getting an appropriate SELECT .. FROM .. [WHERE .. ] query.
     :param select_criteria: Toggles how much information is to be selected for the point:
@@ -19,28 +19,42 @@ def select_sql_point(select_criteria=1):
                                         from point and the dataset (combined with region)
                                 If the mode is different from these, a warning will be issued, and
                                 mode 1 will be selected.
+    :param extended_point:  Toggles whether or not we are to select from the extended_point table, with is joint with
+                            point, region, and dataset.
     :type select_criteria:  int
+    :type extended_point:   bool
     :return:                A SQL clause of SELECT ... FROM ... [WHERE ...]. [] indicates that it might not be there:
                             This is the case for criteria 1, 2, 4, 5
     :rtype:                 str
     """
+    where_sql = ""
     if not 1 <= select_criteria <= 6:
         select_criteria = 1
     if select_criteria == 1:
-        return "SELECT id, long_lat FROM point "
+        select_sql = "SELECT id, long_lat FROM point "
     elif select_criteria == 2:
-        return "SELECT id, long_lat, region FROM point "
+        select_sql = "SELECT id, long_lat, region FROM point "
     elif select_criteria == 3:
-        return "SELECT point.id, point.long_lat, point.region, dataset.id FROM point, region, dataset " \
-               "WHERE point.region = region.id AND region.dataset = dataset.id "
+        if extended_point:
+            select_sql = "SELECT point.id, point.long_lat, point.region, dataset.id FROM extended_point"
+        else:
+            select_sql = "SELECT point.id, point.long_lat, point.region, dataset.id FROM point, region, dataset "
+            where_sql = " WHERE point.region = region.id AND region.dataset = dataset.id "
     elif select_criteria == 4:
-        return "SELECT id, local_location, relative_location, long_lat FROM point "
+        select_sql = "SELECT id, local_location, relative_location, long_lat FROM point "
     elif select_criteria == 5:
-        return "SELECT id, local_location, relative_location, long_lat, region FROM point "
+        select_sql = "SELECT id, local_location, relative_location, long_lat, region FROM point "
     elif select_criteria == 6:
-        return "SELECT point.id, point.local_location, point.relative_location, point.long_lat, point.region, " \
-               "dataset.id " \
-               "FROM point, region, dataset " \
-               "WHERE point.region = region.id AND region.dataset = dataset.id "
+        if extended_point:
+            select_sql = "SELECT point.id, point.local_location, point.relative_location, " \
+                         "point.long_lat, point.region, dataset.id " \
+                         "FROM exteded_point"
+        else:
+            select_sql = "SELECT point.id, point.local_location, point.relative_location, point.long_lat, " \
+                         "point.region, dataset.id " \
+                         "FROM point, region, dataset "
+            where_sql = " WHERE point.region = region.id AND region.dataset = dataset.id "
     else:
         raise Exception("Something very wrong happened...")
+
+    return select_sql + where_sql

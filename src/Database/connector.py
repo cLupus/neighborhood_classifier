@@ -18,19 +18,65 @@ from Common.common import get_one_indexed, is_in_name, string_to_array, is_gauss
 from RegionOfInterest.region import BasePoint
 from RegionOfInterest.region import Point as ROIPoint
 
+# TODO: Use IOPro if available
 
 __author__ = 'Sindre Nistad'
 
+__extended_point_table = False
 
-def connect():
+
+@db_session
+def connect(combine_point_and_dataset=False):
     """
         Performs Database connection using Database settings from settings.py.
+    :param combine_point_and_dataset:   Toggles whether or not a temporary table is to be created that stores the union
+                                        of points, regions, and datasets. Default is False.
+                                        The purpose of this is to speed up getting stuff from the database.
+    :type combine_point_and_dataset:    bool
     :return:    None
     :rtype:     None
     """
-    # return create_engine(URL(**settings.DATABASE))
-    bind()
-    # return db.get_connection()
+    try:
+        bind()
+    except TypeError:
+        warn("The database has already been bound.")
+    if combine_point_and_dataset:
+        sql = """
+        CREATE TABLE extended_point AS
+            SELECT
+                point.id,
+                local_location,
+                relative_location,
+                long_lat,
+                region,
+                dataset,
+                region.name,
+                region.sub_name,
+                color,
+                dataset.name AS dataset_name,
+                type
+            FROM point, region, dataset
+            WHERE point.region = region.id AND region.dataset = dataset.id;
+        """
+        db.execute(sql)
+        global __extended_point_table
+        __extended_point_table = True
+
+
+def disconnect(cleanup=True):
+    if cleanup:
+        _cleanup()
+    db.disconnect()
+
+
+@db_session
+def _cleanup():
+    global __extended_point_table
+    if __extended_point_table:
+        sql = "DROP TABLE extended_point;"
+        db.execute(sql)
+    db.commit()
+    __extended_point_table = False
 
 
 def create_tables(overwrite=False, debug=False):
@@ -338,7 +384,6 @@ def remove_region(name, subname=""):
 """
 Methods for getting stuff from the database
 """
-# TODO
 
 
 def get_numpy_array_from_region(region, dataset="", normalizing_mode="", k=0):
@@ -436,9 +481,36 @@ def get_points_from_region(region, dataset="", normalizing_mode="", k=0):
         return points
 
 
+def _arrange_in_grid(points):
+    pass
+
+
+def order_in_grid(points):
+    """
+    Orders the points in a grid order fashion, that is the point to the northwest will be the first in the list,
+    then the point to the right of the first, and so fourth. Example, say the points are the 9-neighborhood of t
+    he point p (p_{2, 2}):
+        p_{1, 1}  p_{1, 2}  p_{1, 3}
+        p_{2, 1}  p_{2, 2}  p_{2, 3}
+        p_{3, 1}  p_{3, 2}  p_{3, 3}
+    The resulting list will be
+        [p_{1, 1}, p_{1, 2}, p_{1, 3}, p_{2, 1}, p_{2, 2}, p_{2, 3}, p_{3, 1}, p_{3, 2}, p_{3, 3}].
+    :param points:  The list of points we want to order.
+    :type points:   list of [BasePoint]
+    :return:        A list of points, where the point furthest to the northwest is first, then the very next point to
+                    the east of the first point. When there are no more points to the east of the given point, the next
+                    row will follow.
+    :rtype:         list of [BasePoint]
+    """
+    middle = points[0]
+    points = _arrange_in_grid(points)
+
+    pass
+
+
 @db_session
 def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
-                                   ignore_dataset=False, select_criteria=3):
+                                   ignore_dataset=False, select_criteria=3, grid_order=False):
     """
         Returns the k-nearest neighbors for the given point. (This method will return k + 1 points in a
         list, as the given point will be included, unless include_point is set to False)
@@ -464,12 +536,24 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
                                 If the mode is different from these, a warning will be issued, and
                                 mode 1 will be selected.
                                 NB: When mode 3, or 6 is NOT selected, the set will not be normalized!
+    :param grid_order:      Toggles whether or not the points will be given in a grid order, that is the point to the
+                            northwest will be the first in the list, then the point to the right of the first, and so
+                            fourth. Example, say the points are the 9-neighborhood of the point p (p_{2, 2}):
+                                p_{1, 1}  p_{1, 2}  p_{1, 3}
+                                p_{2, 1}  p_{2, 2}  p_{2, 3}
+                                p_{3, 1}  p_{3, 2}  p_{3, 3}
+                            If grid_order is True, then the resulting list will be [p_{1, 1}, p_{1, 2}, p_{1, 3},
+                            p_{2, 1}, p_{2, 2}, p_{2, 3}, p_{3, 1}, p_{3, 2}, p_{3, 3}].
+                            If the grid_order is False, however, then the point p (p_{2, 2}) will be the first, followed
+                            by the rest in order of distance to the point.
+                            NOTE: Its not completely implemented jet, so it is set to False.
     :type point:            RegionOfInterest.region.Point | Point | RegionOfInterest.region.BasePoint
     :type k:                int
     :type dataset:          list of [str] | str
     :type normalize_mode:   str
     :type ignore_dataset:   bool
     :type select_criteria:  int
+    :type grid_order:       bool
     :return:                List of points sorted in ascending order by how close they are to the given point.
     :rtype:                 list of [RegionOfInterest.region.BasePoint | Point]
     """
@@ -483,7 +567,7 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
         latitude = point.latitude
     else:
         raise TypeError("The type for point is not supported. The type of point is ", type(point))
-    select_from_sql = select_sql_point(select_criteria)
+    select_from_sql = select_sql_point(select_criteria, __extended_point_table)
     order_by_sql = "ORDER BY point.long_lat <-> '(" \
                    + str(longitude) + ", " + str(latitude) + ")'::point LIMIT " + str(k) + ";"
     if ignore_dataset:
@@ -498,6 +582,8 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
         sql = select_from_sql + dataset_sql + order_by_sql
     query = db.execute(sql)
     points = query_to_point_list(query, normalize_mode)
+    if grid_order:
+        points = order_in_grid(points)
     return points
 
 
@@ -598,7 +684,6 @@ def _average_over_datasets(data):
     result = {}
     for key in data.keys():
         normalizing_attribute = data[key]  # e.i. Max, min, etc.
-        # TODO: Handle different lengths
         result[key] = {
             'MASTER': [0] * NUMBER_OF_USED_BANDS['MASTER'],
             'AVIRIS': [0] * NUMBER_OF_USED_BANDS['AVIRIS'],
@@ -887,7 +972,7 @@ def get_sample(area, dataset, number_of_samples, k=0, select_criteria=1, backgro
         sub_name = ""
 
     # Writing the SQL query
-    select_sql = select_sql_point(select_criteria)
+    select_sql = select_sql_point(select_criteria, __extended_point_table)
     if dataset != "":
         select_sql += ", dataset "
         dataset_sql = dataset_to_string(dataset)

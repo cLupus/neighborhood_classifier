@@ -168,6 +168,8 @@ UNITS = {
     'nanometer': 10 ** -9,
 }
 
+HIDDEN_INPUT_RATIO = 0.5
+
 """
 Methods for changing the unit of measurement of the wavelengths.
 """

@@ -30,8 +30,7 @@ def run():
     #roi_to_database(roi_master_r19)
     # export_to_potgres(debug=True, add_wavelengths=True, start_index=2, force_load=True)
     #add_wavelength_to_dataset()
-    sample = conn.get_points_from_region('soil', normalizing_mode='gaussian')
-    sample = conn.convert_points_to_numpy_array(sample)
+    sample = conn.get_points_from_region('soil', normalizing_mode='gaussian', k=3)
     print(len(sample))
     pass
 
