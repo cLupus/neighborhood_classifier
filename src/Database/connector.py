@@ -11,7 +11,7 @@ import pony.orm as pny
 from pony.orm import db_session
 import numpy as np
 
-from Database.helpers import select_sql_point
+from Database.helpers import select_sql_point, nearest_neighbor_sql
 from Database.database_definition import db, Color, Dataset, Norm, Point, Region, Spectrum, Wavelengths, bind
 from Common.parameters import WAVELENGTHS, NUMBER_OF_USED_BANDS
 from Common.common import get_one_indexed, is_in_name, string_to_array, is_gaussian, is_min_max
@@ -42,7 +42,7 @@ def connect(combine_point_and_dataset=False):
         warn("The database has already been bound.")
     if combine_point_and_dataset:
         sql = """
-        CREATE TABLE extended_point AS
+        CREATE TEMPORARY TABLE extended_point AS
             SELECT
                 point.id,
                 local_location,
@@ -386,6 +386,46 @@ Methods for getting stuff from the database
 """
 
 
+def get_dataset_sample(target_area, k=0, normalizing_mode="gaussian", dataset="", number_of_samples=-1,
+                       background_target_ratio=1.0, random_sample=False):
+    """
+
+    :param target_area:         Name of the region we want the sample to be from (or not from). If the underscore
+                                character is in the name, it will be assumed as a sub-region,
+                                e.i. sub_name will be given.
+    :param dataset:             The dataset to which the points we want to sample from belong. This can be the empty
+                                string, in which case, we cont care about the dataset. It can also be an array of
+                                datasets, and which case the points can be from any of them.
+    :param number_of_samples:   The number of samples we want. This can be set to -1 (negative) in which case, every
+                                point that satisfy the query is selected.
+    :param k:                   The number of neighbors to each point we want to get.
+    :param random_sample:       Toggles whether or not the sample is to be randomized or not. Default is not, as it is
+                                expensive (at the moment).
+    :type target_area:          str
+    :type dataset:              str | list of [str]
+    :type number_of_samples:    int
+    :type k:                    int
+    :type random_sample:        bool
+    :return:                    A list of points which constitutes a sample from the given region, or a list of points
+                                constitutes a sample from the background of that region.
+    :rtype:                     list of [RegionOfInterest.region.Point]
+    """
+    # Getting the points
+    targets = get_sample(target_area, dataset, number_of_samples, k, 3, False, random_sample)
+    num_background = int(round(len(targets) * background_target_ratio))
+    background = get_sample(target_area, dataset, num_background, k, 3, True, random_sample)
+
+    # Normalizing the points
+    targets = normalize(targets, normalizing_mode)
+    background = normalize(background, normalizing_mode)
+
+    # Convert to NumPy arrays
+    targets = convert_points_to_numpy_array(targets, False)
+    background = convert_points_to_numpy_array(background, True)
+
+    return np.vstack([targets, background])
+
+
 def get_numpy_array_from_region(region, dataset="", normalizing_mode="", k=0):
     """
         Returns all points, and its k nearest neighbors that are in a given region (can be general (only name),
@@ -416,26 +456,75 @@ def get_numpy_array_from_region(region, dataset="", normalizing_mode="", k=0):
     return convert_points_to_numpy_array(points)
 
 
-def convert_points_to_numpy_array(points):
+def convert_points_to_numpy_array(points, background=False):
     """
     Converts a list of points, or neighbors to a numpy array of appropriate size.
-    :param points:  A list (of list) of points that will be converted into a numpy array/matrix.
-    :type points:   list of [BasePoint] | list of [list of [BasePoint]]
-    :return:        A 2D NumPy array of spectral data, each point corresponding to one column if k = 0;
-                    we do not consider the neigborhood. If we do consider the neighborhood, then it returns
-                    a 3D NumPy array; each column is a neighborhood, and each column in that matrix is a 'point';
+    :param points:      A list (of list) of points that will be converted into a numpy array/matrix.
+    :param background:  Toggles whether or not these points are to be considered as part of the background or not.
+                        Default is False.
+    :type points:       list of [BasePoint] | list of [list of [BasePoint]]
+    :type background:   bool
+    :return:            A 2D NumPy array of spectral data, each point corresponding to one column if k = 0;
+                        we do not consider the neigborhood. If we do consider the neighborhood, then it returns
+                        a 3D NumPy array; each column is a neighborhood, and each column in that matrix is a 'point';
     """
-    num_points = len(points)
     if isinstance(points[0], BasePoint):
         num_neighbors = 0
     else:
         num_neighbors = len(points[0])
     # TODO: Make it possible to combine different datasets (MASTER/AVIRIS)
     if num_neighbors == 0:
-        band_matrix = np.array([point.bands for point in points])
+        band_matrix = np.array([point.get_bands(background) for point in points])
     else:
-        band_matrix = np.array([[p.bands for p in neighbor] for neighbor in points])
+        band_matrix = np.array([[p.get_bands(background) for p in neighbor] for neighbor in points])
     return band_matrix
+
+
+def get_numpy_sample(area, dataset, number_of_samples, k=0, select_criteria=1, background=False, random_sample=False):
+    """
+        Returns a random sample of number_of_samples points which lies in the given area (which may be regions, or a
+        specific region when given a sub-name; e.g. name_sub-name, or just name for the value of area. If background
+        is set to True, the resulting collection will be a random sample of anything but the given area.
+    :param area:                Name of the region we want the sample to be from (or not from). If the underscore
+                                character is in the name, it will be assumed as a sub-region,
+                                e.i. sub_name will be given.
+    :param dataset:             The dataset to which the points we want to sample from belong. This can be the empty
+                                string, in which case, we cont care about the dataset. It can also be an array of
+                                datasets, and which case the points can be from any of them.
+    :param number_of_samples:   The number of samples we want. This can be set to -1 (negative) in which case, every
+                                point that satisfy the query is selected.
+    :param k:                   The number of neighbors to each point we want to get.
+    :param select_criteria:     Toggles how much information is to be selected for the point:
+                                    1 -> Selects (id, long_lat) from point
+                                    2 -> Selects (id, long_lat, region) from point
+                                    3 -> Selects (id, long_lat, region, dataset.id) from point, and the dataset
+                                           (combined with region)
+                                    4 -> Selects (id, local_location, relative_location, long_lat) from point
+                                    5 -> Selects (id, local_location, relative_location, long_lat, region) from point
+                                    6 -> Selects (id, local_location, relative_location, long_lat, region, dataset.id)
+                                            from point and the dataset (combined with region)
+                                If the mode is different from these, a warning will be issued, and
+                                mode 1 will be selected.
+                                NB: When mode 3, or 6 is NOT selected, the set will not be normalized!
+                                Default is 1.
+    :param background:          Toggles whether or not the returned set is from the actual region, or from the
+                                'background' of that region, e.i. anything but that region.
+    :param random_sample:       Toggles whether or not the sample is to be randomized or not. Default is not, as it is
+                                expensive (at the moment).
+    :type area:                 str
+    :type dataset:              str | list of [str]
+    :type number_of_samples:    int
+    :type k:                    int
+    :type select_criteria:      int
+    :type background:           bool
+    :type random_sample:        bool
+    :return:                    A NumPy array/matrix of samples
+    :rtype:                     np.array
+    """
+    points = get_sample(area, dataset, number_of_samples, k, select_criteria, background, random_sample)
+    return convert_points_to_numpy_array(points, background)
+
+
 
 
 def get_points_from_region(region, dataset="", normalizing_mode="", k=0):
@@ -482,6 +571,15 @@ def get_points_from_region(region, dataset="", normalizing_mode="", k=0):
 
 
 def _arrange_in_grid(points):
+    """
+
+    :param points:
+    :return:
+    :rtype:         list of [list of [BasePoint]]
+    """
+    x = [None] * len(points)
+    y = [None] * len(points)
+
     pass
 
 
@@ -502,10 +600,14 @@ def order_in_grid(points):
                     row will follow.
     :rtype:         list of [BasePoint]
     """
-    middle = points[0]
-    points = _arrange_in_grid(points)
-
-    pass
+    grid = _arrange_in_grid(points)
+    res = [None] * len(points)
+    x_length = len(grid)
+    y_length = len(grid[0])
+    for i in range(x_length):
+        for j in range(y_length):
+            res[i + j * y_length] = grid[i, j]
+    return res
 
 
 @db_session
@@ -557,8 +659,11 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
     :return:                List of points sorted in ascending order by how close they are to the given point.
     :rtype:                 list of [RegionOfInterest.region.BasePoint | Point]
     """
+    # Is the normalizing mode compatible with the SELECT criteria?
     assert ((is_min_max(normalize_mode) or is_gaussian(normalize_mode))
             and (select_criteria == 3 or select_criteria == 6) or normalize_mode == "")
+
+    # Getting the longitude, and latitude
     if isinstance(point, Point):
         longitude = point.long_lat[0]
         latitude = point.long_lat[1]
@@ -567,22 +672,35 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
         latitude = point.latitude
     else:
         raise TypeError("The type for point is not supported. The type of point is ", type(point))
+
+    # Selecting the appropriate SELECT clause, followed by a ORDERED BY clause
     select_from_sql = select_sql_point(select_criteria, __extended_point_table)
-    order_by_sql = "ORDER BY point.long_lat <-> '(" \
-                   + str(longitude) + ", " + str(latitude) + ")'::point LIMIT " + str(k) + ";"
-    if ignore_dataset:
-        sql = select_from_sql + order_by_sql
-    else:
+
+    # Initial ORDER BY clause (what attribute are we compare against?)
+    order_by_sql = nearest_neighbor_sql(longitude, latitude, k, __extended_point_table)
+
+    # Do we consider the dataset the points belong to?
+    dataset_sql = ""
+    if not ignore_dataset:
         if 'WHERE' in select_from_sql:
             dataset_sql = dataset_to_string(dataset)
         elif dataset != "":
             dataset_sql = " WHERE " + dataset_to_string(dataset, True)
-        else:
-            dataset_sql = ""
-        sql = select_from_sql + dataset_sql + order_by_sql
+
+    # Make sure the areas are compatible
+    where_sql = ""
+
+    sql = select_from_sql + dataset_sql + order_by_sql + ";"
+
+    # Execute the generated SQL
     query = db.execute(sql)
+    # TODO: Does this include the point itself?
+
+    # Converting the query result to normal points.
     points = query_to_point_list(query, normalize_mode)
     if grid_order:
+        # TODO: Implement, or abandon
+        # TODO: Make sure that the neighbors are of the same region!
         points = order_in_grid(points)
     return points
 
@@ -798,7 +916,8 @@ def normalize(points, mode=""):
     :param mode:    The mode of normalization.
     :type points:   list of [BasePoint] | list of [list of [BasePoint]]
     :type mode:     str
-    :return:
+    :return:        List of normalized points
+    :rtype:         list of [BasePoint]
     """
     if (isinstance(points[0], BasePoint) and points[0].dataset_id < 0) or (
                 isinstance(points[0], list) and points[0][0].dataset_id < 0):
@@ -828,7 +947,7 @@ def normalize(points, mode=""):
     return points
 
 
-def query_to_point_list(query, normalize_mode="", number_of_elements=-1, user_row_count=False):
+def query_to_point_list(query, normalize_mode="", number_of_elements=-1, user_row_count=False, background=False):
     """
         Takes a query of points (id, long_lat, region), or everything from point, gets the spectrum for each point,
         and then creates a list of BasePoints, or Points.
@@ -843,10 +962,14 @@ def query_to_point_list(query, normalize_mode="", number_of_elements=-1, user_ro
     :param user_row_count:      Toggles whether or not to use the rowcount filed in the query as a parameter of length.
                                 Default is False.
                                 NOTE: This will overwrite whatever value of number_of_elements was passed.
+    :param background:          Is this considered background, or target? Default is False.
+                                Sets the first element to 0 if True, or 1 if False, i.e. 1 if the pointlist is the
+                                target, and 0 if it is background.
     :type query:                psycopg2.extensions.cursor
     :type normalize_mode:       str
     :type number_of_elements:   int
     :type user_row_count:       bool
+    :type background:           bool
     :return:                    List of BasePoints/Points with their spectrum.
     :rtype:                     list of [RegionOfInterest.region.BasePoint | RegionOfInterest.region.Point]
     """
@@ -874,7 +997,7 @@ def get_point(point_tuple):
         get the spectrum for the given point as well
     :param point_tuple: Tuple of numbers representing a point. May be the following:
                             * (id, long_lat, [region], [dataset]) or
-                            * (id, local_location, relative_location, long_lat, [region], [dataset]),
+                            * (id, local_location, relative_location, long_lat, [name], [sub_name], [region], [dataset]),
                         where [] is optional, and might be used in the future.
     :type point_tuple:  tuple
     :return:            A single point (Point or BasePoint) that is equivalent to the given tuple.
@@ -898,7 +1021,7 @@ def get_point(point_tuple):
         else:
             dataset = -1
         return BasePoint(point_id, latitude, longitude, bands, region, dataset)
-    elif 4 <= len(point_tuple) <= 6:
+    elif 4 <= len(point_tuple) <= 8:
         # We have more info, and so we make a 'normal' Point.
         local_location = string_to_array(point_tuple[1])
         relative_location = string_to_array(point_tuple[2])
@@ -913,11 +1036,19 @@ def get_point(point_tuple):
             region = point_tuple[4]
         else:
             region = -1
-        if len(point_tuple) == 6:
+        if len(point_tuple) >= 6:
+            name = point_tuple[5]
+        else:
+            name = ""
+        if len(point_tuple) >= 7:
+            sub_name = point_tuple[6]
+        else:
+            sub_name = ""
+        if len(point_tuple) == 8:
             dataset = point_tuple[5]
         else:
             dataset = -1
-        return ROIPoint(point_id, x, y, map_x, map_y, longitude, latitude, region, dataset)
+        return ROIPoint(point_id, x, y, map_x, map_y, longitude, latitude, name, sub_name, region, dataset)
 
 
 @db_session
@@ -978,28 +1109,43 @@ def get_sample(area, dataset, number_of_samples, k=0, select_criteria=1, backgro
         dataset_sql = dataset_to_string(dataset)
     else:
         dataset_sql = ""
+
+    # Define whether or not we are getting background
     if background:
         # Are we sampling the background or not?
         equal_operator = " != "
     else:
         equal_operator = " = "
+
+    # Deals with the WHERE clause
     if 'WHERE' in select_sql:
         where_sql = " AND "
     else:
         where_sql = " WHERE "
-    where_sql += "point.region = region.id AND region.name" + equal_operator + "'" + name + "'"
-    if sub_name != "":
-        where_sql += " AND region.sub_name" + equal_operator + "'" + sub_name + "'"
+    if not __extended_point_table:
+        where_sql += "point.region = region.id AND region.name" + equal_operator + "'" + name + "'"
+        if sub_name != "":
+            where_sql += " AND region.sub_name" + equal_operator + "'" + sub_name + "'"
+    else:
+        where_sql += "name " + equal_operator + "'" + name + "'"
+        if sub_name != "":
+            where_sql += " AND sub_name " + equal_operator + "'" + sub_name + "'"
+
+    # Do we select randomly?
     if random_sample:
         order_by_sql = " ORDER BY random() "
         # TODO: Fix the random selection; according to StackOverflow, this is VERY slow (sorts the entire table).
         # There are remedies, but they are difficult to work on when constraining the data.
     else:
         order_by_sql = ""
+
+    # Limits the outputs if necessary
     if number_of_samples > 0:
         limit_sql = " LIMIT " + str(number_of_samples)
     else:
         limit_sql = ""
+
+    # Compile the SQL query
     sql = select_sql + where_sql + dataset_sql + order_by_sql + limit_sql + ";"
     query = db.execute(sql)
     points = query_to_point_list(query, number_of_elements=number_of_samples, user_row_count=True)
@@ -1007,6 +1153,7 @@ def get_sample(area, dataset, number_of_samples, k=0, select_criteria=1, backgro
         return points
     else:
         return get_nearest_neighbor_to_points(points, k, dataset)
+        # TODO: Add info about whether or not this is a target.
 
 
 def point_to_postgres_point(*args):

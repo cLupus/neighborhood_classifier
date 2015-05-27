@@ -25,13 +25,14 @@ def run():
 
     # roi_master_r19.save_to_csv(";", "../master_r19.csv")
     # create_database(overwrite=False, create_tables=True, check_tables=True)
-    conn.connect()
     # drop_tables(True)
     #roi_to_database(roi_master_r19)
     # export_to_potgres(debug=True, add_wavelengths=True, start_index=2, force_load=True)
     #add_wavelength_to_dataset()
-    sample = conn.get_points_from_region('soil', normalizing_mode='gaussian', k=3)
-    print(len(sample))
+
+    conn.connect(True)
+    dataset = conn.get_dataset_sample('soil', 3)
+    print(dataset)
     pass
 
 

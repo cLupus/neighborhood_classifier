@@ -178,6 +178,25 @@ class BasePoint(object):
         self.dataset_id = dataset_id
         """ :type : int """
 
+    def get_bands(self, background=False):
+        """
+        Returns an array of the bands together with a flag indicating whether or not this point ist to be considered as
+        part of the background, or not. If it is considered as background the first element will be 0. If the point is
+        not considered as background, that is, it is considered as a target, the first element will be 1.
+        :param background:  Toggles whether or not this point is to be considered as background or not.
+                            Default is False.
+        :type background:   bool
+        :return:            Returns a list of bands, that is a spectrum, with the first element as a flag for indicating
+                            if the point is part of the 'background', or not.
+        :rtype:             list of [float]
+        """
+        if background:
+            res = [0]
+        else:
+            res = [1]
+        res.extend(self.bands)
+        return res
+
     def get_bands_as_string(self, delimiter=","):
         """
             Returns a single string of the value of all the bands in this point.
@@ -197,7 +216,8 @@ class Point(BasePoint):
     More specific information is stored, such as relative image location and such
     """
 
-    def __init__(self, identity, x, y, map_x, map_y, latitude, longitude, bands, region_id=-1, dataset_id=-1):
+    def __init__(self, identity, x, y, map_x, map_y, latitude, longitude, bands, name="", sub_name="",
+                 region_id=-1, dataset_id=-1):
         """
             A object to hold, and organize the relevant information for a specific point in the data set.
         :param identity:    An id, unique to the ROI polygon at creation in ENVI. Not used
@@ -208,6 +228,8 @@ class Point(BasePoint):
         :param latitude:    The absolute latitude of the point.
         :param longitude:   The absolute longitude of the point.
         :param bands:       A list of the different spectral bands for the point.
+        :param name:        Optional:   The name of the region the point belongs to.
+        :param sub_name:    Optional:   The sub-name of the region the point belongs to.
         :param region_id:   Optional:   The id for the region the point belongs to. Default is -1, indicating that it
                                         has not been set.
         :param dataset_id:  Optional:   The id for the dataset the point belongs to. Default is -1, indicating that it
@@ -220,6 +242,8 @@ class Point(BasePoint):
         :type latitude:     float
         :type longitude:    float
         :type bands:        list[float]
+        :type name:         str
+        :type sub_name:     str
         :type region_id:    int
         :type dataset_id:   int
         :return:
@@ -234,5 +258,7 @@ class Point(BasePoint):
         """ :type : float """
         self.map_Y = map_y
         """ :type : float """
-
-
+        self.name = name
+        """ :type : str """
+        self.sub_name = sub_name
+        """ :type : str """

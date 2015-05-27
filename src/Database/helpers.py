@@ -36,7 +36,7 @@ def select_sql_point(select_criteria=1, extended_point=False):
         select_sql = "SELECT id, long_lat, region FROM point "
     elif select_criteria == 3:
         if extended_point:
-            select_sql = "SELECT point.id, point.long_lat, point.region, dataset.id FROM extended_point"
+            select_sql = "SELECT id, long_lat, region, dataset FROM extended_point"
         else:
             select_sql = "SELECT point.id, point.long_lat, point.region, dataset.id FROM point, region, dataset "
             where_sql = " WHERE point.region = region.id AND region.dataset = dataset.id "
@@ -46,9 +46,8 @@ def select_sql_point(select_criteria=1, extended_point=False):
         select_sql = "SELECT id, local_location, relative_location, long_lat, region FROM point "
     elif select_criteria == 6:
         if extended_point:
-            select_sql = "SELECT point.id, point.local_location, point.relative_location, " \
-                         "point.long_lat, point.region, dataset.id " \
-                         "FROM exteded_point"
+            select_sql = "SELECT id, local_location, relative_location, long_lat, region, dataset " \
+                         "FROM extended_point"
         else:
             select_sql = "SELECT point.id, point.local_location, point.relative_location, point.long_lat, " \
                          "point.region, dataset.id " \
@@ -58,3 +57,27 @@ def select_sql_point(select_criteria=1, extended_point=False):
         raise Exception("Something very wrong happened...")
 
     return select_sql + where_sql
+
+
+def nearest_neighbor_sql(longitude, latitude, k, extended_point_table=False):
+    """
+    Gives an ORDER BY clause that gets the k nearest points to the given longitude, and latitude.
+    :param longitude:               The longitude of the point we want to find the nearest neighbors.
+    :param latitude:                The latitude of the point we want to find the nearest neighbors.
+    :param k:                       The number of neighbors we want ot find.
+    :param extended_point_table:    Have the extended_point table been created?
+    :type longitude:                float
+    :type latitude:                 float
+    :type k:                        int
+    :type extended_point_table:     bool
+    :return:                        An ORDER BY SQL clause.
+    :rtype:                         str
+    """
+    if extended_point_table:
+        order_by_sql = " ORDER BY long_lat <-> '("
+    else:
+        order_by_sql = " ORDER BY point.long_lat <-> '("
+
+    # Adding the actual point
+    order_by_sql += str(longitude) + ", " + str(latitude) + ")'::point LIMIT " + str(k)
+    return order_by_sql
