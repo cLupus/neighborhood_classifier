@@ -62,6 +62,8 @@ def select_sql_point(select_criteria=1, extended_point=False):
 def nearest_neighbor_sql(longitude, latitude, k, extended_point_table=False):
     """
     Gives an ORDER BY clause that gets the k nearest points to the given longitude, and latitude.
+    NOTE:   The resulting query will have k + 1, as the nearest point is the point itself, and the result would be the
+            k - 1 nearest neighbors.
     :param longitude:               The longitude of the point we want to find the nearest neighbors.
     :param latitude:                The latitude of the point we want to find the nearest neighbors.
     :param k:                       The number of neighbors we want ot find.
@@ -79,5 +81,5 @@ def nearest_neighbor_sql(longitude, latitude, k, extended_point_table=False):
         order_by_sql = " ORDER BY point.long_lat <-> '("
 
     # Adding the actual point
-    order_by_sql += str(longitude) + ", " + str(latitude) + ")'::point LIMIT " + str(k)
+    order_by_sql += str(longitude) + ", " + str(latitude) + ")'::point LIMIT " + str(k + 1)
     return order_by_sql

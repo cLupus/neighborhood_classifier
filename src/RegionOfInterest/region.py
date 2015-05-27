@@ -210,6 +210,21 @@ class BasePoint(object):
     def __len__(self):
         return len(self.bands)
 
+    def __lt__(self, other):
+        return (self.longitude, self.latitude) < (other.longitude, other.latitude)
+
+    def __gt__(self, other):
+        return (self.longitude, self.latitude) > (other.longitude, other.latitude)
+
+    def __le__(self, other):
+        return (self.longitude, self.latitude) <= (other.longitude, other.latitude)
+
+    def __ge__(self, other):
+        return (self.longitude, self.latitude) >= (other.longitude, other.latitude)
+
+    def __eq__(self, other):
+        return (self.longitude, self.latitude) == (other.longitude, other.latitude)
+
 
 class Point(BasePoint):
     """

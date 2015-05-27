@@ -570,49 +570,9 @@ def get_points_from_region(region, dataset="", normalizing_mode="", k=0):
         return points
 
 
-def _arrange_in_grid(points):
-    """
-
-    :param points:
-    :return:
-    :rtype:         list of [list of [BasePoint]]
-    """
-    x = [None] * len(points)
-    y = [None] * len(points)
-
-    pass
-
-
-def order_in_grid(points):
-    """
-    Orders the points in a grid order fashion, that is the point to the northwest will be the first in the list,
-    then the point to the right of the first, and so fourth. Example, say the points are the 9-neighborhood of t
-    he point p (p_{2, 2}):
-        p_{1, 1}  p_{1, 2}  p_{1, 3}
-        p_{2, 1}  p_{2, 2}  p_{2, 3}
-        p_{3, 1}  p_{3, 2}  p_{3, 3}
-    The resulting list will be
-        [p_{1, 1}, p_{1, 2}, p_{1, 3}, p_{2, 1}, p_{2, 2}, p_{2, 3}, p_{3, 1}, p_{3, 2}, p_{3, 3}].
-    :param points:  The list of points we want to order.
-    :type points:   list of [BasePoint]
-    :return:        A list of points, where the point furthest to the northwest is first, then the very next point to
-                    the east of the first point. When there are no more points to the east of the given point, the next
-                    row will follow.
-    :rtype:         list of [BasePoint]
-    """
-    grid = _arrange_in_grid(points)
-    res = [None] * len(points)
-    x_length = len(grid)
-    y_length = len(grid[0])
-    for i in range(x_length):
-        for j in range(y_length):
-            res[i + j * y_length] = grid[i, j]
-    return res
-
-
 @db_session
 def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
-                                   ignore_dataset=False, select_criteria=3, grid_order=False):
+                                   ignore_dataset=False, select_criteria=3):
     """
         Returns the k-nearest neighbors for the given point. (This method will return k + 1 points in a
         list, as the given point will be included, unless include_point is set to False)
@@ -638,24 +598,12 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
                                 If the mode is different from these, a warning will be issued, and
                                 mode 1 will be selected.
                                 NB: When mode 3, or 6 is NOT selected, the set will not be normalized!
-    :param grid_order:      Toggles whether or not the points will be given in a grid order, that is the point to the
-                            northwest will be the first in the list, then the point to the right of the first, and so
-                            fourth. Example, say the points are the 9-neighborhood of the point p (p_{2, 2}):
-                                p_{1, 1}  p_{1, 2}  p_{1, 3}
-                                p_{2, 1}  p_{2, 2}  p_{2, 3}
-                                p_{3, 1}  p_{3, 2}  p_{3, 3}
-                            If grid_order is True, then the resulting list will be [p_{1, 1}, p_{1, 2}, p_{1, 3},
-                            p_{2, 1}, p_{2, 2}, p_{2, 3}, p_{3, 1}, p_{3, 2}, p_{3, 3}].
-                            If the grid_order is False, however, then the point p (p_{2, 2}) will be the first, followed
-                            by the rest in order of distance to the point.
-                            NOTE: Its not completely implemented jet, so it is set to False.
     :type point:            RegionOfInterest.region.Point | Point | RegionOfInterest.region.BasePoint
     :type k:                int
     :type dataset:          list of [str] | str
     :type normalize_mode:   str
     :type ignore_dataset:   bool
     :type select_criteria:  int
-    :type grid_order:       bool
     :return:                List of points sorted in ascending order by how close they are to the given point.
     :rtype:                 list of [RegionOfInterest.region.BasePoint | Point]
     """
@@ -687,21 +635,17 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
         elif dataset != "":
             dataset_sql = " WHERE " + dataset_to_string(dataset, True)
 
-    # Make sure the areas are compatible
-    where_sql = ""
+    # There is no need for enforcing the areas to be of the same type, as it might be important that the neighbor
+    # is of a different region
 
     sql = select_from_sql + dataset_sql + order_by_sql + ";"
 
     # Execute the generated SQL
     query = db.execute(sql)
-    # TODO: Does this include the point itself?
 
     # Converting the query result to normal points.
     points = query_to_point_list(query, normalize_mode)
-    if grid_order:
-        # TODO: Implement, or abandon
-        # TODO: Make sure that the neighbors are of the same region!
-        points = order_in_grid(points)
+    points.sort()
     return points
 
 
