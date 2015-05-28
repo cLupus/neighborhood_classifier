@@ -17,6 +17,11 @@ def select_sql_point(select_criteria=1, extended_point=False):
                                 5 -> Selects (id, local_location, relative_location, long_lat, region) from point
                                 6 -> Selects (id, local_location, relative_location, long_lat, region, dataset.id)
                                         from point and the dataset (combined with region)
+                                7 -> Selects (id, local_location, relative_location, long_lat, name, region, dataset.id)
+                                        from point and the dataset (combined with region)
+                                8 -> Selects (id, local_location, relative_location, long_lat, name, sub_name, region,
+                                                dataset.id)
+                                        from point and the dataset (combined with region)
                                 If the mode is different from these, a warning will be issued, and
                                 mode 1 will be selected.
     :param extended_point:  Toggles whether or not we are to select from the extended_point table, with is joint with
@@ -28,7 +33,9 @@ def select_sql_point(select_criteria=1, extended_point=False):
     :rtype:                 str
     """
     where_sql = ""
-    if not 1 <= select_criteria <= 6:
+    min_selection_criteria = 1
+    max_selection_criteria = 8
+    if not min_selection_criteria <= select_criteria <= max_selection_criteria:
         select_criteria = 1
     if select_criteria == 1:
         select_sql = "SELECT id, long_lat FROM point "
@@ -51,6 +58,24 @@ def select_sql_point(select_criteria=1, extended_point=False):
         else:
             select_sql = "SELECT point.id, point.local_location, point.relative_location, point.long_lat, " \
                          "point.region, dataset.id " \
+                         "FROM point, region, dataset "
+            where_sql = " WHERE point.region = region.id AND region.dataset = dataset.id "
+    elif select_criteria == 7:
+        if extended_point:
+            select_sql = "SELECT id, local_location, relative_location, long_lat, name, region, dataset " \
+                         "FROM extended_point"
+        else:
+            select_sql = "SELECT point.id, point.local_location, point.relative_location, point.long_lat, region.name" \
+                         "point.region, dataset.id " \
+                         "FROM point, region, dataset "
+            where_sql = " WHERE point.region = region.id AND region.dataset = dataset.id "
+    elif select_criteria == 8:
+        if extended_point:
+            select_sql = "SELECT id, local_location, relative_location, long_lat, name, sub_name, region, dataset " \
+                         "FROM extended_point"
+        else:
+            select_sql = "SELECT point.id, point.local_location, point.relative_location, point.long_lat, " \
+                         "region.name, region.sub_name, point.region, dataset.id " \
                          "FROM point, region, dataset "
             where_sql = " WHERE point.region = region.id AND region.dataset = dataset.id "
     else:

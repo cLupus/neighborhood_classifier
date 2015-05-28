@@ -102,6 +102,45 @@ CLASSES = {
     ]
 }
 
+UNIQUE_CLASSES = {
+    'golfcourse',
+    'CESP',
+    'urban',
+    'ARCASALE',
+    'agres',
+    'EUSP',
+    'MARSH',
+    'PEAM',
+    'QUAG',
+    'CISP',
+    'UMCA',
+    'ARCA-SALE',
+    'ARGL',
+    'MAFG',
+    'plra',
+    'PISA',
+    'PLRA',
+    'QUDO',
+    'bapi',
+    'qudo',
+    'CEME',
+    'pisa',
+    'DTRN',
+    'RDP',
+    'cecu',
+    'soil',
+    'agsoil',
+    'grassland',
+    'erfa',
+    'DTR',
+    'ADFA',
+    'magf',
+    'rock',
+    'BRNI',
+    'BAPI'
+}
+
+
 WAVELENGTHS = {
     'AVIRIS': {
         'wavelengths': [
@@ -169,6 +208,19 @@ UNITS = {
 }
 
 HIDDEN_INPUT_RATIO = 0.5
+
+USE_NAIVE_SAMPLING = False
+
+POINT_FIELDS = {
+    'id',
+    'local_location',
+    'relative_location',
+    'long_lat',
+    'name',
+    'sub_name',
+    'region',
+    'dataset'
+}
 
 """
 Methods for changing the unit of measurement of the wavelengths.

@@ -13,7 +13,7 @@ import numpy as np
 
 from Database.helpers import select_sql_point, nearest_neighbor_sql
 from Database.database_definition import db, Color, Dataset, Norm, Point, Region, Spectrum, Wavelengths, bind
-from Common.parameters import WAVELENGTHS, NUMBER_OF_USED_BANDS
+from Common.parameters import WAVELENGTHS, NUMBER_OF_USED_BANDS, USE_NAIVE_SAMPLING, UNIQUE_CLASSES, POINT_FIELDS
 from Common.common import get_one_indexed, is_in_name, string_to_array, is_gaussian, is_min_max
 from RegionOfInterest.region import BasePoint
 from RegionOfInterest.region import Point as ROIPoint
@@ -386,6 +386,26 @@ Methods for getting stuff from the database
 """
 
 
+def export_to_csv(region="", dataset="", k=0, delimiter=','):
+    delimiter += " "
+    if region == "":
+        # Export all the regions
+        points = []
+        """ :type list[ROIPoint] """
+        file_name = "dataset.csv"
+        for sample_region in UNIQUE_CLASSES:
+            points.extend(get_sample(sample_region, dataset, -1, k=k, select_criteria=8))
+    else:
+        points = get_sample(region, dataset, -1, k=k, select_criteria=8)
+        file_name = region + ".csv"
+    f = open(file_name, 'w')
+    for point in points:
+        # @type point: ROIPoint
+        string = point.name + delimiter + str(point.sub_name) + delimiter + point.get_bands_as_string(delimiter)
+        f.write(string + "\n")
+    f.close()
+
+
 def get_dataset_sample(target_area, k=0, normalizing_mode="gaussian", dataset="", number_of_samples=-1,
                        background_target_ratio=1.0, random_sample=False):
     """
@@ -476,7 +496,15 @@ def convert_points_to_numpy_array(points, background=False):
     if num_neighbors == 0:
         band_matrix = np.array([point.get_bands(background) for point in points])
     else:
-        band_matrix = np.array([[p.get_bands(background) for p in neighbor] for neighbor in points])
+        # band_matrix = [[p.bands for p in neighbor] for neighbor in points]
+        band_matrix = [None] * len(points)
+        for i in range(len(points)):
+            neighbors = points[i]
+            flag = 0 if background else 1
+            itm = [flag]
+            itm.extend([point.bands for point in neighbors])
+            band_matrix[i] = np.array(itm)
+            # TODO: Make into a single list.
     return band_matrix
 
 
@@ -503,6 +531,13 @@ def get_numpy_sample(area, dataset, number_of_samples, k=0, select_criteria=1, b
                                     5 -> Selects (id, local_location, relative_location, long_lat, region) from point
                                     6 -> Selects (id, local_location, relative_location, long_lat, region, dataset.id)
                                             from point and the dataset (combined with region)
+                                    7 -> Selects (id, local_location, relative_location, long_lat, name, region,
+                                    dataset.id)
+                                        from point and the dataset (combined with region)
+                                    8 -> Selects (id, local_location, relative_location, long_lat, name, sub_name,
+                                    region,
+                                                dataset.id)
+                                        from point and the dataset (combined with region)
                                 If the mode is different from these, a warning will be issued, and
                                 mode 1 will be selected.
                                 NB: When mode 3, or 6 is NOT selected, the set will not be normalized!
@@ -595,6 +630,11 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
                                 5 -> Selects (id, local_location, relative_location, long_lat, region) from point
                                 6 -> Selects (id, local_location, relative_location, long_lat, region, dataset.id)
                                         from point and the dataset (combined with region)
+                                7 -> Selects (id, local_location, relative_location, long_lat, name, region, dataset.id)
+                                        from point and the dataset (combined with region)
+                                8 -> Selects (id, local_location, relative_location, long_lat, name, sub_name, region,
+                                                dataset.id)
+                                        from point and the dataset (combined with region)
                                 If the mode is different from these, a warning will be issued, and
                                 mode 1 will be selected.
                                 NB: When mode 3, or 6 is NOT selected, the set will not be normalized!
@@ -609,7 +649,7 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
     """
     # Is the normalizing mode compatible with the SELECT criteria?
     assert ((is_min_max(normalize_mode) or is_gaussian(normalize_mode))
-            and (select_criteria == 3 or select_criteria == 6) or normalize_mode == "")
+            and (select_criteria == 3 or 6 <= select_criteria <= 8) or normalize_mode == "")
 
     # Getting the longitude, and latitude
     if isinstance(point, Point):
@@ -673,6 +713,11 @@ def get_nearest_neighbor_to_points(points, k, dataset, normalize_mode="",
                                 4 -> Selects (id, local_location, relative_location, long_lat) from point
                                 5 -> Selects (id, local_location, relative_location, long_lat, region) from point
                                 6 -> Selects (id, local_location, relative_location, long_lat, region, dataset.id)
+                                        from point and the dataset (combined with region)
+                                7 -> Selects (id, local_location, relative_location, long_lat, name, region, dataset.id)
+                                        from point and the dataset (combined with region)
+                                8 -> Selects (id, local_location, relative_location, long_lat, name, sub_name, region,
+                                                dataset.id)
                                         from point and the dataset (combined with region)
                                 If the mode is different from these, a warning will be issued, and
                                 mode 1 will be selected.
@@ -891,6 +936,12 @@ def normalize(points, mode=""):
     return points
 
 
+def _get_description(description):
+    res = {}
+    for i in range(len(description)):
+        res[description[i][0]] = i
+    return res
+
 def query_to_point_list(query, normalize_mode="", number_of_elements=-1, user_row_count=False, background=False):
     """
         Takes a query of points (id, long_lat, region), or everything from point, gets the spectrum for each point,
@@ -917,25 +968,26 @@ def query_to_point_list(query, normalize_mode="", number_of_elements=-1, user_ro
     :return:                    List of BasePoints/Points with their spectrum.
     :rtype:                     list of [RegionOfInterest.region.BasePoint | RegionOfInterest.region.Point]
     """
+    description = _get_description(query.description)
     if user_row_count:
         number_of_elements = query.rowcount
     if number_of_elements > 0:
         points = [None] * number_of_elements
         i = 0
         for point_tuple in query:
-            points[i] = get_point(point_tuple)
+            points[i] = get_point(point_tuple, description)
             i += 1
     else:
         points = []
         for point_tuple in query:
-            points.append(get_point(point_tuple))
+            points.append(get_point(point_tuple, description))
     if normalize_mode != "":
         points = normalize(points, normalize_mode)
     return points
 
 
 @db_session
-def get_point(point_tuple):
+def get_point(point_tuple, description):
     """
         Takes a tuple, and makes it into a Point, or BasePoint depending on how long the tuple is. This method will also
         get the spectrum for the given point as well
@@ -943,7 +995,9 @@ def get_point(point_tuple):
                             * (id, long_lat, [region], [dataset]) or
                             * (id, local_location, relative_location, long_lat, [name], [sub_name], [region], [dataset]),
                         where [] is optional, and might be used in the future.
+    :param description: A dictionary of columns names with their associated index in the tuple.
     :type point_tuple:  tuple
+    :type description:  dict of [str, int]
     :return:            A single point (Point or BasePoint) that is equivalent to the given tuple.
     :rtype:             BasePoint | RegionsOfInterest.region.Point
     """
@@ -951,48 +1005,43 @@ def get_point(point_tuple):
     sql = "SELECT value FROM spectrum WHERE point = " + str(point_id) + " ORDER BY band_nr;"
     query = db.execute(sql)
     bands = [value[0] for value in query]
-    if 2 <= len(point_tuple) <= 4:
-        long_lat = string_to_array(point_tuple[1])
-        longitude = long_lat[0]
-        latitude = long_lat[1]
-        # We only have enough info to give a BasePoint
-        if len(point_tuple) >= 3:
-            region = point_tuple[2]
+    values = {}
+    for key in POINT_FIELDS:
+        if key in description:
+            values[key] = point_tuple[description[key]]
         else:
-            region = -1
-        if len(point_tuple) == 4:
-            dataset = point_tuple[3]
-        else:
-            dataset = -1
+            values[key] = ""
+    point_id = values['id']
+    long_lat = string_to_array(values['long_lat'])
+    longitude = long_lat[0]
+    latitude = long_lat[1]
+    region = values['region']
+    dataset = values['dataset']
+    if 'local_location' not in description:
         return BasePoint(point_id, latitude, longitude, bands, region, dataset)
-    elif 4 <= len(point_tuple) <= 8:
-        # We have more info, and so we make a 'normal' Point.
-        local_location = string_to_array(point_tuple[1])
-        relative_location = string_to_array(point_tuple[2])
-        long_lat = string_to_array(point_tuple[3])
+    else:
+        local_location = string_to_array(values['local_location'])
+        relative_location = string_to_array(values['relative_location'])
         x = local_location[0]
         y = local_location[1]
         map_x = relative_location[0]
         map_y = relative_location[1]
-        longitude = long_lat[0]
-        latitude = long_lat[1]
-        if len(point_tuple) >= 5:
-            region = point_tuple[4]
-        else:
-            region = -1
-        if len(point_tuple) >= 6:
-            name = point_tuple[5]
-        else:
-            name = ""
-        if len(point_tuple) >= 7:
-            sub_name = point_tuple[6]
-        else:
-            sub_name = ""
-        if len(point_tuple) == 8:
-            dataset = point_tuple[5]
-        else:
-            dataset = -1
-        return ROIPoint(point_id, x, y, map_x, map_y, longitude, latitude, name, sub_name, region, dataset)
+        name = values['name']
+        sub_name = values['sub_name']
+        return ROIPoint(point_id, x, y, map_x, map_y, latitude, longitude, bands, name, sub_name, region, dataset)
+
+
+@db_session
+def get_total_number_of_samples():
+    """
+    Returns the total number of points in the database
+    :return:
+    :rtype:     int
+    """
+    sql = "SELECT count(*) FROM point;"
+    query = db.execute(sql)
+    for itm in query:
+        return itm[0]
 
 
 @db_session
@@ -1009,6 +1058,8 @@ def get_sample(area, dataset, number_of_samples, k=0, select_criteria=1, backgro
                                 datasets, and which case the points can be from any of them.
     :param number_of_samples:   The number of samples we want. This can be set to -1 (negative) in which case, every
                                 point that satisfy the query is selected.
+                                If the number_of_samples is a float in the range (0, 1), then that percentage of the
+                                total population will be selected.
     :param k:                   The number of neighbors to each point we want to get.
     :param select_criteria:     Toggles how much information is to be selected for the point:
                                     1 -> Selects (id, long_lat) from point
@@ -1019,6 +1070,13 @@ def get_sample(area, dataset, number_of_samples, k=0, select_criteria=1, backgro
                                     5 -> Selects (id, local_location, relative_location, long_lat, region) from point
                                     6 -> Selects (id, local_location, relative_location, long_lat, region, dataset.id)
                                             from point and the dataset (combined with region)
+                                    7 -> Selects (id, local_location, relative_location, long_lat, name, region,
+                                    dataset.id)
+                                        from point and the dataset (combined with region)
+                                    8 -> Selects (id, local_location, relative_location, long_lat, name, sub_name,
+                                    region,
+                                                dataset.id)
+                                        from point and the dataset (combined with region)
                                 If the mode is different from these, a warning will be issued, and
                                 mode 1 will be selected.
                                 NB: When mode 3, or 6 is NOT selected, the set will not be normalized!
@@ -1076,21 +1134,35 @@ def get_sample(area, dataset, number_of_samples, k=0, select_criteria=1, backgro
             where_sql += " AND sub_name " + equal_operator + "'" + sub_name + "'"
 
     # Do we select randomly?
-    if random_sample:
-        order_by_sql = " ORDER BY random() "
-        # TODO: Fix the random selection; according to StackOverflow, this is VERY slow (sorts the entire table).
-        # There are remedies, but they are difficult to work on when constraining the data.
+    if isinstance(number_of_samples, float) and 0 < number_of_samples <= 1:
+        if 'WHERE' in select_sql or 'WHERE' in where_sql:
+            sample_sql = " AND"
+        else:
+            sample_sql = " WHERE"
+        sample_sql += " random() <= " + str(number_of_samples)
     else:
-        order_by_sql = ""
+        if random_sample:
+            if USE_NAIVE_SAMPLING:
+                order_by_sql = " ORDER BY random() "
+            else:
+                total_number_of_samples = get_total_number_of_samples()
+                if 'WHERE' in select_sql or 'WHERE' in where_sql:
+                    order_by_sql = " AND"
+                else:
+                    order_by_sql = " WHERE"
+                order_by_sql += " random() <= " + str(number_of_samples / total_number_of_samples)
+        else:
+            order_by_sql = ""
 
-    # Limits the outputs if necessary
-    if number_of_samples > 0:
-        limit_sql = " LIMIT " + str(number_of_samples)
-    else:
-        limit_sql = ""
+        # Limits the outputs if necessary
+        if number_of_samples > 0:
+            limit_sql = " LIMIT " + str(number_of_samples)
+        else:
+            limit_sql = ""
+        sample_sql = order_by_sql + limit_sql
 
     # Compile the SQL query
-    sql = select_sql + where_sql + dataset_sql + order_by_sql + limit_sql + ";"
+    sql = select_sql + where_sql + dataset_sql + sample_sql + ";"
     query = db.execute(sql)
     points = query_to_point_list(query, number_of_elements=number_of_samples, user_row_count=True)
     if k <= 0:

@@ -165,6 +165,10 @@ class BasePoint(object):
         :type dataset_id:   int
         :return:
         """
+        if not isinstance(region_id, int):
+            region_id = -1
+        if not isinstance(dataset_id, int):
+            dataset_id = -1
         self.identity = int(identity)
         """ :type : int """
         self.latitude = latitude
@@ -225,6 +229,11 @@ class BasePoint(object):
     def __eq__(self, other):
         return (self.longitude, self.latitude) == (other.longitude, other.latitude)
 
+        # def __repr__(self):
+        #     return self.__str__()
+        #
+        # def __str__(self):
+        #     return str(self.identity) + ", " + self.get_bands_as_string(",")
 
 class Point(BasePoint):
     """
