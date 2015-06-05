@@ -7,6 +7,7 @@ classifier.
 import neurolab as nl
 from neurolab.trans import TanSig
 from numpy.random import random_sample
+from numpy import setdiff1d, linspace
 
 from Common.parameters import NUMBER_OF_USED_BANDS, HIDDEN_INPUT_RATIO, DEFAULT_TRANSFER_FUNCTION
 
@@ -83,12 +84,14 @@ class ClassificationNet(object):
         if not isinstance(transfer_functions, list):
             # A single function is given
             transfer_functions = [transfer_functions] * 2
-        elif len(transfer_functions) == 1:  # FIXME?
+        elif len(transfer_functions) == 1:
             transfer_functions.extend([DEFAULT_TRANSFER_FUNCTION])
         else:
             raise TypeError("Too many transfer functions")
 
         self.net = nl.net.newff(minmax=minmax, size=size, transf=transfer_functions)
+
+        # separate_dataset()
 
     def divide_dataset(self, test_fraction, validation_fraction=0):
         """
@@ -102,14 +105,24 @@ class ClassificationNet(object):
         :rtype:                         None
         """
         assert 0 < test_fraction < 1 and 0 <= validation_fraction < 1
-        indices = random_sample(len(self.dataset) * test_fraction) * len(self.dataset)
-        indices = indices.astype(int)
-        self.test_data = self.dataset[indices]
-        self.training_data = self.dataset - self.test_data
+        n = len(self.dataset)
+        dataset_indices = linspace(0, n - 1, n).astype(int)
+        test_indices = random_sample(n * test_fraction) * n
+        test_indices = test_indices.astype(int)
 
-        indices = random_sample(len(self.training_data) * validation_fraction) * len(self.training_data)
+        train_indices = setdiff1d(dataset_indices, test_indices)
+        self.test_data = self.dataset[test_indices]
+        self.training_data = self.dataset[train_indices]
+        n_train = len(self.test_data)
+
+        indices = random_sample(n_train * validation_fraction) * n_train
         indices = indices.astype(int)
+
         self.validation_data = self.training_data[indices]
 
     def train(self, inp, tar, epoch, goal):
         self.net.train(inp, tar, epoch=epoch, goal=goal)
+
+
+def separate_dataset(dataset):
+    pass

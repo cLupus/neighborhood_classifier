@@ -183,7 +183,7 @@ WAVELENGTHS = {
 
 NUMBER_OF_USED_BANDS = {
     'AVIRIS': 178,
-    "MASTER": 5,  # TODO: Figure out which
+    "MASTER": 5,
 }
 
 USED_BANDS = {
