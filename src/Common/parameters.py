@@ -4,7 +4,10 @@ TODO: File description
 """
 from __future__ import division
 
+from neurolab.trans import TanSig
+
 __author__ = 'Sindre Nistad'
+
 
 """
 The different names of classes in each dataset
@@ -172,10 +175,7 @@ WAVELENGTHS = {
     },
     'MASTER': {  # In this case, we only use 5 bands...
         'wavelengths': [
-            0.458, 0.496, 0.538, 0.58, 0.652, 0.71, 0.75, 0.8, 0.866, 0.906, 0.946, 1.608, 1.666, 1.718, 1.774,
-            1.826, 1.874, 1.924, 1.98, 2.08, 2.16, 2.212, 2.258, 2.32, 2.388, 3.142, 3.292, 3.452, 3.607, 3.757,
-            3.912, 4.067, 4.224, 4.374, 4.522, 4.667, 4.822, 4.962, 5.117, 5.272, 7.815, 8.185, 8.665, 9.104,
-            9.706, 10.115, 10.554, 11.365, 12.097, 12.876
+            8.613977, 9.053109, 10.615784, 11.301617, 12.096429
         ],
         'unit': 'micrometer',
     }
@@ -183,8 +183,12 @@ WAVELENGTHS = {
 
 NUMBER_OF_USED_BANDS = {
     'AVIRIS': 178,
-    "MASTER": 5,
+    "MASTER": 5,  # TODO: Figure out which
+}
 
+USED_BANDS = {
+    'AVIRIS': [i for i in range(1, 178 + 1)],
+    'MASTER': [i for i in range(1, 5 + 1)],
 }
 
 """
@@ -261,3 +265,6 @@ def _set_unit(unit, dataset):
         for wvl in WAVELENGTHS[dataset]['wavelengths']
     ]
     WAVELENGTHS[dataset]['unit'] = unit
+
+
+DEFAULT_TRANSFER_FUNCTION = TanSig()

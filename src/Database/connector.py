@@ -11,10 +11,12 @@ import pony.orm as pny
 from pony.orm import db_session
 import numpy as np
 
-from Database.helpers import select_sql_point, nearest_neighbor_sql
+from Database.helpers import select_sql_point, nearest_neighbor_sql, bands_to_string, get_normalizing_sql, \
+    dataset_to_string
 from Database.database_definition import db, Color, Dataset, Norm, Point, Region, Spectrum, Wavelengths, bind
 from Common.parameters import WAVELENGTHS, NUMBER_OF_USED_BANDS, USE_NAIVE_SAMPLING, UNIQUE_CLASSES, POINT_FIELDS
 from Common.common import get_one_indexed, is_in_name, string_to_array, is_gaussian, is_min_max
+from Common.settings import get_extended_point, get_norm_points, set_extended_point_table, set_norm_points_table
 from RegionOfInterest.region import BasePoint
 from RegionOfInterest.region import Point as ROIPoint
 
@@ -22,17 +24,35 @@ from RegionOfInterest.region import Point as ROIPoint
 
 __author__ = 'Sindre Nistad'
 
-__extended_point_table = False
+
+@db_session
+def _set_table_values():
+    try:
+        db.execute("SELECT * FROM extended_point LIMIT 1;")
+        set_extended_point_table(True)
+    except pny.ProgrammingError:
+        set_extended_point_table(False)
+
+    try:
+        db.execute("SELECT * FROM norm_points LIMIT 1;")
+        set_norm_points_table(True)
+    except pny.ProgrammingError:
+        set_norm_points_table(False)
 
 
 @db_session
-def connect(combine_point_and_dataset=False):
+def connect(combine_point_and_dataset=False, norm_points=False):
     """
         Performs Database connection using Database settings from settings.py.
     :param combine_point_and_dataset:   Toggles whether or not a temporary table is to be created that stores the union
                                         of points, regions, and datasets. Default is False.
                                         The purpose of this is to speed up getting stuff from the database.
+    :param norm_points:                 Toggles whether or not a table norm_points will be created or not. This table
+                                        will hold the normalizing data for all the spectra in the database, and will
+                                        speed up the normalization when we do not want to use the 'given' normalization
+                                        data.
     :type combine_point_and_dataset:    bool
+    :type norm_points:                  bool
     :return:    None
     :rtype:     None
     """
@@ -40,9 +60,59 @@ def connect(combine_point_and_dataset=False):
         bind()
     except TypeError:
         warn("The database has already been bound.")
+    _set_table_values()
+    if combine_point_and_dataset and not get_extended_point():
+        _create_extended_point()
+
+    if norm_points and not get_norm_points():
+        _create_norm_points(combine_point_and_dataset)
+
+
+@db_session
+def _create_norm_points(combine_point_and_dataset):
     if combine_point_and_dataset:
         sql = """
-        CREATE TEMPORARY TABLE extended_point AS
+            CREATE TABLE norm_points AS
+              SELECT
+                band_nr,
+                dataset,
+                min(value),
+                max(value),
+                avg(value),
+                stddev(value)
+              FROM spectrum, extended_point
+              WHERE spectrum.point = extended_point.id
+              GROUP BY band_nr, extended_point.dataset;
+              """
+    else:
+        sql = """
+            CREATE TABLE norm_points AS
+              SELECT
+                spectrum.id,
+                band_nr,
+                dataset,
+                min(value),
+                max(value),
+                avg(value),
+                stddev(value)
+              FROM spectrum, point, region, dataset
+              WHERE spectrum.point = point.id AND point.region = region.id AND region.dataset = dataset.id
+              GROUP BY band_nr, dataset.id;
+              """
+    try:
+        db.execute(sql)
+    except pny.ProgrammingError as e:
+        if 'already exists' in str(e):
+            pass
+        else:
+            raise e
+    set_norm_points_table(True)
+
+
+@db_session
+def _create_extended_point():
+    sql = """
+        CREATE TABLE extended_point AS
             SELECT
                 point.id,
                 local_location,
@@ -58,25 +128,33 @@ def connect(combine_point_and_dataset=False):
             FROM point, region, dataset
             WHERE point.region = region.id AND region.dataset = dataset.id;
         """
+    try:
         db.execute(sql)
-        global __extended_point_table
-        __extended_point_table = True
+    except pny.ProgrammingError as e:
+        if 'already exists' in str(e):
+            pass
+        else:
+            set_extended_point_table(False)
+            raise e
+    set_extended_point_table(True)
 
 
-def disconnect(cleanup=True):
+def disconnect(cleanup=False, hard_clean=False):
     if cleanup:
-        _cleanup()
+        _cleanup(hard_clean)
     db.disconnect()
 
 
 @db_session
-def _cleanup():
-    global __extended_point_table
-    if __extended_point_table:
-        sql = "DROP TABLE extended_point;"
+def _cleanup(hard_clean=False):
+    sql = "DROP TABLE IF EXISTS extended_point;"
+    db.execute(sql)
+    if hard_clean:
+        sql = "DROP TABLE norm_points;"
         db.execute(sql)
-    db.commit()
-    __extended_point_table = False
+        set_norm_points_table(False)
+    set_extended_point_table(False)
+
 
 
 def create_tables(overwrite=False, debug=False):
@@ -386,49 +464,99 @@ Methods for getting stuff from the database
 """
 
 
-def export_to_csv(region="", dataset="", k=0, delimiter=','):
+def export_to_csv(region="", dataset="", k=0, proportion=1.0, delimiter=','):
+    """
+    Export the given region(s), and/or dataset(s) to a CSV file
+    :param region:      The region(s) we want to export. If it is left empty, all regions will be exported.
+    :param dataset:     The dataset(s), or data type (e.g. AVIRIS/MASTER) we want to export. If it is left blank,
+                        datasets will not be considered.
+    :param k:           The number of neighbors we want to export. 0 indicates that only the point itself will be
+                        exported, e.i. 0 neighbors
+    :param proportion:  The proportion of the dataset we are to export.
+    :param delimiter:   The delimiter for the exported file. Default is ',', but can be anything (within good taste).
+    :type region:       str | list of [str]
+    :type dataset:      str | list of [str]
+    :type k:            int
+    :type proportion:   float
+    :type delimiter:    str
+    :return:
+    """
+    if proportion >= 1 or proportion <= 0:
+        proportion = -1
     delimiter += " "
+    # TODO: Add header/explanation of the columns
+    header = "Name " + delimiter + "Sub name" + delimiter + bands_to_string(dataset, delimiter)
+    i = 1
     if region == "":
         # Export all the regions
-        points = []
         """ :type list[ROIPoint] """
         file_name = "dataset.csv"
-        for sample_region in UNIQUE_CLASSES:
-            points.extend(get_sample(sample_region, dataset, -1, k=k, select_criteria=8))
+        areas = UNIQUE_CLASSES
     else:
-        points = get_sample(region, dataset, -1, k=k, select_criteria=8)
+        areas = [region]
         file_name = region + ".csv"
+
     f = open(file_name, 'w')
-    for point in points:
-        # @type point: ROIPoint
-        string = point.name + delimiter + str(point.sub_name) + delimiter + point.get_bands_as_string(delimiter)
-        f.write(string + "\n")
+    f.write(header)
+    for sample_region in areas:
+        points = get_sample(sample_region, dataset, proportion, k=k, select_criteria=8)
+        _write_to_file(points, delimiter, f)
+        print(str(i / len(UNIQUE_CLASSES) * 100) + "% complete.")
+        i += 1
     f.close()
 
 
+def _write_to_file(points, delimiter, f):
+    """
+    Writes the content of the points to the given file
+    :param points:      List of files to be written to the file
+    :param delimiter:   The delimiter to be used to separate the eateries.
+    :param f:           A file handle.
+    :type points:       list of [ROIPoint]
+    :type delimiter:    str
+    :type f:            file
+    :return:
+    """
+    for point in points:
+        string = point.name + delimiter + str(point.sub_name) + delimiter + point.get_bands_as_string(delimiter)
+        f.write(string + '\n')
+    f.flush()
+
+
 def get_dataset_sample(target_area, k=0, normalizing_mode="gaussian", dataset="", number_of_samples=-1,
-                       background_target_ratio=1.0, random_sample=False):
+                       background_target_ratio=1.0, random_sample=False, use_stored_normalization_values=True):
     """
 
-    :param target_area:         Name of the region we want the sample to be from (or not from). If the underscore
-                                character is in the name, it will be assumed as a sub-region,
-                                e.i. sub_name will be given.
-    :param dataset:             The dataset to which the points we want to sample from belong. This can be the empty
-                                string, in which case, we cont care about the dataset. It can also be an array of
-                                datasets, and which case the points can be from any of them.
-    :param number_of_samples:   The number of samples we want. This can be set to -1 (negative) in which case, every
-                                point that satisfy the query is selected.
-    :param k:                   The number of neighbors to each point we want to get.
-    :param random_sample:       Toggles whether or not the sample is to be randomized or not. Default is not, as it is
-                                expensive (at the moment).
-    :type target_area:          str
-    :type dataset:              str | list of [str]
-    :type number_of_samples:    int
-    :type k:                    int
-    :type random_sample:        bool
-    :return:                    A list of points which constitutes a sample from the given region, or a list of points
-                                constitutes a sample from the background of that region.
-    :rtype:                     list of [RegionOfInterest.region.Point]
+
+    :param target_area:                     Name of the region we want the sample to be from (or not from).
+                                            If the underscore character is in the name,
+                                            it will be assumed as a sub-region, e.i. sub_name will be given.
+    :param k:                               The number of neighbors to each point we want to get.
+    :param normalizing_mode:                Which mode will be used for the normalization? Gaussian, or min-max,
+                                            or none (""). Gaussian is default.
+    :param dataset:                         The dataset to which the points we want to sample from belong. This can
+                                            be the empty string, in which case, we cont care about the dataset.
+                                            It can also be an array of datasets, and which case the points can be
+                                            from any of them.
+    :param number_of_samples:               The number of samples we want. This can be set to -1 (negative) in which
+                                            case, every point that satisfy the query is selected.
+    :param background_target_ratio:         Sets the ration of background samples to target samples.
+    :param random_sample:                   Toggles whether or not the sample is to be randomized or not.
+                                            Default is not, as it is expensive (at the moment).
+    :param use_stored_normalization_values: Toggles whether or not the given normalizing values are to be used or not.
+                                            Default is True, as this is cheaper, if 'norm_points' is not defined, but
+                                            you run into the chance of getting incorrect normalization data...
+    :type target_area:                      str
+    :type k:                                int
+    :type normalizing_mode:                 str
+    :type dataset:                          str | list of [str]
+    :type number_of_samples:                int
+    :type background_target_ratio:          float
+    :type random_sample:                    bool
+    :type use_stored_normalization_values:  bool
+    :return:                                A list of points which constitutes a sample from the given region,
+                                            or a list of points constitutes a sample from the background of that region.
+    :rtype:                                 list of [RegionOfInterest.region.Point]
     """
     # Getting the points
     targets = get_sample(target_area, dataset, number_of_samples, k, 3, False, random_sample)
@@ -436,14 +564,14 @@ def get_dataset_sample(target_area, k=0, normalizing_mode="gaussian", dataset=""
     background = get_sample(target_area, dataset, num_background, k, 3, True, random_sample)
 
     # Normalizing the points
-    targets = normalize(targets, normalizing_mode)
-    background = normalize(background, normalizing_mode)
+    targets = normalize(targets, normalizing_mode, use_stored_values=use_stored_normalization_values)
+    background = normalize(background, normalizing_mode, use_stored_values=use_stored_normalization_values)
 
     # Convert to NumPy arrays
     targets = convert_points_to_numpy_array(targets, False)
     background = convert_points_to_numpy_array(background, True)
 
-    return np.vstack([targets, background])
+    return np.append(targets, background, 0)
 
 
 def get_numpy_array_from_region(region, dataset="", normalizing_mode="", k=0):
@@ -493,19 +621,21 @@ def convert_points_to_numpy_array(points, background=False):
     else:
         num_neighbors = len(points[0])
     # TODO: Make it possible to combine different datasets (MASTER/AVIRIS)
+    flag = 0 if background else 1
+    itm = [flag]
     if num_neighbors == 0:
-        band_matrix = np.array([point.get_bands(background) for point in points])
+        itm.extend([point.get_bands(background) for point in points])
+        band_matrix = itm
     else:
         # band_matrix = [[p.bands for p in neighbor] for neighbor in points]
         band_matrix = [None] * len(points)
         for i in range(len(points)):
             neighbors = points[i]
-            flag = 0 if background else 1
-            itm = [flag]
-            itm.extend([point.bands for point in neighbors])
+            for point in neighbors:
+                itm.extend(point.bands)
             band_matrix[i] = np.array(itm)
             # TODO: Make into a single list.
-    return band_matrix
+    return np.array(band_matrix)
 
 
 def get_numpy_sample(area, dataset, number_of_samples, k=0, select_criteria=1, background=False, random_sample=False):
@@ -662,10 +792,10 @@ def get_nearest_neighbors_to_point(point, k, dataset, normalize_mode="",
         raise TypeError("The type for point is not supported. The type of point is ", type(point))
 
     # Selecting the appropriate SELECT clause, followed by a ORDERED BY clause
-    select_from_sql = select_sql_point(select_criteria, __extended_point_table)
+    select_from_sql = select_sql_point(select_criteria)
 
     # Initial ORDER BY clause (what attribute are we compare against?)
-    order_by_sql = nearest_neighbor_sql(longitude, latitude, k, __extended_point_table)
+    order_by_sql = nearest_neighbor_sql(longitude, latitude, k)
 
     # Do we consider the dataset the points belong to?
     dataset_sql = ""
@@ -740,7 +870,7 @@ def get_nearest_neighbor_to_points(points, k, dataset, normalize_mode="",
     return neighbors
 
 
-def get_min_max(datasets="", be_assertive=False, take_averages=False):
+def get_min_max(datasets="", be_assertive=False, take_averages=False, use_stored_values=True):
     """
         Gets a dict of list og minimums, and maximums for each datasets. This can be refined to give the minimums, and
         maximums for specified datasets.
@@ -757,27 +887,34 @@ def get_min_max(datasets="", be_assertive=False, take_averages=False):
                             id as a key and a list of band/a spectrum for each entry.
     :rtype:                 list of [dict of [int, list of [float]]]
     """
-    return get_normalizing_data(['minimum', 'maximum'], datasets, be_assertive, take_averages)
+    return get_normalizing_data(['minimum', 'maximum'], datasets, be_assertive, take_averages,
+                                use_stored_values=use_stored_values)
 
 
-def get_mean_std(datasets="", be_assertive=False, take_averages=False):
+def get_mean_std(datasets="", be_assertive=False, take_averages=False, use_stored_values=True):
     """
         Gets a dict of list og means, and standard deviations for each datasets. This can be refined to give the
         means, and standard deviations for specified datasets.
-    :param datasets:        A single datasets, or a list of datasets.
-    :param be_assertive:    Toggles whether or not we want to assert that the bands are in the right order. By default
-                            this is False, but should not be necessary.
-    :param take_averages:   Toggles whether or not the average value of the normalizing data (over datasets) is to be
-                            used or not. Default is False.
-    :type datasets:         str | list of [str]
-    :type be_assertive:     bool
-    :type take_averages:    bool
-    :return:                A dict of lists with the means, and standard deviations for the given datasets;
-                            e.i. two lists, one for standard deviations, and one for means. Each of these contain a
-                            dictionary that uses the dataset id as a key and a list of band/a spectrum for each entry.
-    :rtype:                 list of [dict of [int, list of [float]]]
+    :param datasets:            A single datasets, or a list of datasets.
+    :param be_assertive:        Toggles whether or not we want to assert that the bands are in the right order.
+                                By default this is False, but should not be necessary.
+    :param take_averages:       Toggles whether or not the average value of the normalizing data (over datasets) is to
+                                be used or not. Default is False.
+    :param use_stored_values:   Toggles whether or not the normalizing values that are stored in the database is to be
+                                used, or not. If False, it will compute the normalizing data from the spectrum values
+                                in the database.
+    :type datasets:             str | list of [str]
+    :type be_assertive:         bool
+    :type take_averages:        bool
+    :type use_stored_values:    bool
+    :return:                    A dict of lists with the means, and standard deviations for the given datasets;
+                                e.i. two lists, one for standard deviations, and one for means. Each of these contain a
+                                dictionary that uses the dataset id as a key and a list of band/a spectrum
+                                for each entry.
+    :rtype:                     list of [dict of [int, list of [float]]]
     """
-    return get_normalizing_data(['mean', 'standard deviation'], datasets, be_assertive, take_averages)
+    return get_normalizing_data(['mean', 'standard deviation'], datasets=datasets, be_assertive=be_assertive,
+                                take_averages=take_averages, use_stored_values=use_stored_values)
 
 
 def _average_over_datasets(data):
@@ -810,43 +947,38 @@ def _average_over_datasets(data):
 
 
 @db_session
-def get_normalizing_data(params, datasets="", be_assertive=False, take_averages=False):
+def get_normalizing_data(params, datasets="", be_assertive=False, take_averages=False, use_stored_values=True):
     """
         Gets a dict of list of minimums, maximums, means, and standard deviations for each datasets.
         This can be refined to give the minimums, maximums, means, and std's for specified datasets.
-    :param params:          A list of strings specifying which parameters we are interested in.
-    :param datasets:        A single datasets, or a list of datasets.
-    :param be_assertive:    Toggles whether or not we want to assert that the bands are in the right order. By default
-                            this is False, but should not be necessary.
-    :param take_averages:   Toggles whether or not the average value of the normalizing data (over datasets) is to be
-                            used or not. Default is False.
-    :type params:           list of [str]
-    :type datasets:         str | list of [str]
-    :type be_assertive:     bool
-    :type take_averages:    bool
-    :return:                A dict of lists with the minimums, maximums, means, std's for the given datasets;
-                            e.i. four lists, one for maximums, one for minimums, and so on. Each of these contain a
-                            dictionary that uses the dataset id as a key and a list of band/a spectrum for each entry.
-    :rtype:                 list of [dict of [int, list of [float]]]
+    :param params:              A list of strings specifying which parameters we are interested in.
+    :param datasets:            A single datasets, or a list of datasets.
+    :param be_assertive:        Toggles whether or not we want to assert that the bands are in the right order.
+                                By default this is False, but should not be necessary.
+    :param take_averages:       Toggles whether or not the average value of the normalizing data (over datasets)
+                                is to be used or not. Default is False.
+    :param use_stored_values:   Toggles whether or not the normalizing values that are stored in the database is to be
+                                used, or not. If False, it will compute the normalizing data from the spectrum values
+                                in the database.
+                                NOTE:   This was added because it seem the stored values are not correct, as there is a
+                                        mismatch between those and the spectrum values.
+    :type params:               list of [str]
+    :type datasets:             str | list of [str]
+    :type be_assertive:         bool
+    :type take_averages:        bool
+    :type use_stored_values:    bool
+    :return:                    A dict of lists with the minimums, maximums, means, std's for the given datasets;
+                                e.i. four lists, one for maximums, one for minimums, and so on. Each of these contain a
+                                dictionary that uses the dataset id as a key and a list of band/a spectrum for
+                                each entry.
+    :rtype:                     list of [dict of [int, list of [float]]]
     """
     # Creates the appropriate SQL for getting the minimums and maximums
-    select_sql = "SELECT band_nr, dataset"
-    if 'minimum' in params:
-        select_sql += ", minimum"
-    if 'maximum' in params:
-        select_sql += ", maximum"
-    if 'mean' in params:
-        select_sql += ", mean"
-    if 'standard' in params or 'standard deviation' in params:
-        select_sql += ", std_dev"
-    select_sql += " FROM norm "
-    if datasets != "":
-        where_sql = "WHERE " + dataset_to_string(datasets)
-    else:
-        where_sql = ""
-    order_sql = " ORDER BY band_nr ASC "
-    sql = select_sql + where_sql + order_sql + ";"
+
+    sql = get_normalizing_sql(params, datasets, use_stored_values)
     query = db.execute(sql)
+
+    # Sort, and group the normalizing data
     minimums, maximums, means, standard_deviations = {}, {}, {}, {}
     for query_tuple in query:
         band_nr = query_tuple[0]
@@ -897,16 +1029,21 @@ def get_normalizing_data(params, datasets="", be_assertive=False, take_averages=
     return _order_results(params, result)
 
 
-def normalize(points, mode=""):
+def normalize(points, mode="", use_stored_values=True):
     """
         Normalizes the given set of points according to the given mode. If the mode is not set, the method will not do
         anything, but return the point-set.
-    :param points:  A list of points we want to normalize.
-    :param mode:    The mode of normalization.
-    :type points:   list of [BasePoint] | list of [list of [BasePoint]]
-    :type mode:     str
-    :return:        List of normalized points
-    :rtype:         list of [BasePoint]
+    :param points:              A list of points we want to normalize.
+    :param mode:                The mode of normalization. Can be 'gaussian', or 'min-max'.
+    :param use_stored_values:   Toggles whether or not the given values for normalization is to be used or not.
+                                If False, then the data in 'norm_points' will be used if defined, otherwise, the
+                                normalizing data will be computed.
+                                Default is True, as this is, in general, 'safer'.
+    :type points:               list of [BasePoint] | list of [list of [BasePoint]]
+    :type mode:                 str
+    :type use_stored_values:    bool
+    :return:                    List of normalized points
+    :rtype:                     list of [BasePoint]
     """
     if (isinstance(points[0], BasePoint) and points[0].dataset_id < 0) or (
                 isinstance(points[0], list) and points[0][0].dataset_id < 0):
@@ -916,7 +1053,8 @@ def normalize(points, mode=""):
     if mode == "":
         warn("No normalizing mode was given, so we're just going to return the points as they are")
     elif is_min_max(mode):
-        [minimums, maximums] = get_normalizing_data(['minimum', 'maximum'], take_averages=take_averages)
+        [minimums, maximums] = get_normalizing_data(['minimum', 'maximum'], take_averages=take_averages,
+                                                    use_stored_values=use_stored_values)
         for point in points:
             if isinstance(point, list):
                 for p in point:
@@ -924,7 +1062,7 @@ def normalize(points, mode=""):
             else:
                 _min_max_normalize(point, minimums, maximums)
     elif is_gaussian(mode):
-        [means, std_dev] = get_mean_std(take_averages=take_averages)
+        [means, std_dev] = get_mean_std(take_averages=take_averages, use_stored_values=use_stored_values)
         for point in points:
             if isinstance(point, list):
                 for p in point:
@@ -968,6 +1106,7 @@ def query_to_point_list(query, normalize_mode="", number_of_elements=-1, user_ro
     :return:                    List of BasePoints/Points with their spectrum.
     :rtype:                     list of [RegionOfInterest.region.BasePoint | RegionOfInterest.region.Point]
     """
+    # TODO: Implement background
     description = _get_description(query.description)
     if user_row_count:
         number_of_elements = query.rowcount
@@ -1087,7 +1226,7 @@ def get_sample(area, dataset, number_of_samples, k=0, select_criteria=1, backgro
                                 expensive (at the moment).
     :type area:                 str
     :type dataset:              str | list of [str]
-    :type number_of_samples:    int
+    :type number_of_samples:    int | float
     :type k:                    int
     :type select_criteria:      int
     :type background:           bool
@@ -1105,9 +1244,10 @@ def get_sample(area, dataset, number_of_samples, k=0, select_criteria=1, backgro
         sub_name = ""
 
     # Writing the SQL query
-    select_sql = select_sql_point(select_criteria, __extended_point_table)
+    select_sql = select_sql_point(select_criteria)
     if dataset != "":
-        select_sql += ", dataset "
+        if not get_extended_point() and 'dataset' not in select_sql:
+            select_sql += ", dataset "
         dataset_sql = dataset_to_string(dataset)
     else:
         dataset_sql = ""
@@ -1124,14 +1264,19 @@ def get_sample(area, dataset, number_of_samples, k=0, select_criteria=1, backgro
         where_sql = " AND "
     else:
         where_sql = " WHERE "
-    if not __extended_point_table:
-        where_sql += "point.region = region.id AND region.name" + equal_operator + "'" + name + "'"
-        if sub_name != "":
-            where_sql += " AND region.sub_name" + equal_operator + "'" + sub_name + "'"
+
+    # Which table are we to select from?
+    if get_extended_point():
+        table_name = "extended_point."
     else:
-        where_sql += "name " + equal_operator + "'" + name + "'"
-        if sub_name != "":
-            where_sql += " AND sub_name " + equal_operator + "'" + sub_name + "'"
+        table_name = "region."
+        # Joins the table 'region', with the table 'point'.
+        where_sql += " point.region = region.id AND region.name" + equal_operator + "'" + name + "'"
+
+    # Specify the name of the region we are interested in.
+    where_sql += table_name + "name " + equal_operator + "'" + name + "'"
+    if sub_name != "":
+        where_sql += " AND " + table_name + "sub_region " + equal_operator + "'" + sub_name + "'"
 
     # Do we select randomly?
     if isinstance(number_of_samples, float) and 0 < number_of_samples <= 1:
@@ -1186,45 +1331,6 @@ def point_to_postgres_point(*args):
         s += str(elm) + ', '
     s = s[:-2]  # Removes the last ", "
     return s
-
-
-def dataset_to_string(dataset, single=False):
-    """
-        A method that takes a single dataset, or a list of datasets, and converts it into a SQL clause:
-        'AND (dataset[0] OR dataset[1] OR ... OR dataset[n-1])'. The datasets can be the full name of the dataset
-        or it can be the type, e.g. MASTER, or AVIRIS, or a mixture of the two.
-    :param dataset: A single dataset, or a list of datasets that we want to include in a query.
-    :param single:  Toggles whether or not the sub query is the only part of the WHERE clause, or not. Default is False.
-                    In other words, if this flag is set, the AND (...) will be dropped.
-    :type dataset:  str | list of [str]
-    :type single:   bool
-    :return:        A single string of the form AND (dataset.name = dataset[0] OR ... OR dataset.name = dataset[n-1]) if
-                    the given string has only dataset-names in it, or it will return a single string of the form
-                    AND (dataset.type = dataset[0] OR ... OR dataset.type = dataset[n-1]) if the datasets have the word
-                    'MASTER' or 'AVIRIS' in it. If there is a combination of the two, a combination will be returned.
-    :rtype:         str
-    """
-    if dataset == "" or dataset == []:
-        warn("You did not give any databases, so you won't receive a SQL clause, "
-             "only a empty string. (dataset_to_string)")
-        return ""
-
-    if not isinstance(dataset, list):
-        dataset = [dataset]
-    if not single:
-        dataset_sql = " AND ("
-    else:
-        dataset_sql = ""
-    for elm in dataset:
-        if 'MASTER' in dataset or 'AVIRIS' in elm:
-            dataset_sql += "dataset.type = '"
-        else:
-            dataset_sql += " dataset.name = '"
-        dataset_sql += elm + "' OR "
-    dataset_sql = dataset_sql[:-3]  # Removing the last 'or '
-    if not single:
-        dataset_sql += ')'
-    return dataset_sql
 
 
 def _index_of_param(param, val):

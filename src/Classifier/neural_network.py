@@ -8,7 +8,7 @@ import neurolab as nl
 from neurolab.trans import TanSig
 from numpy.random import random_sample
 
-from Common.parameters import NUMBER_OF_USED_BANDS, HIDDEN_INPUT_RATIO
+from Common.parameters import NUMBER_OF_USED_BANDS, HIDDEN_INPUT_RATIO, DEFAULT_TRANSFER_FUNCTION
 
 
 class ClassificationNet(object):
@@ -16,13 +16,15 @@ class ClassificationNet(object):
     A classification neural network.
     """
 
-    def __init__(self, minimum, maximum, points, target, hidden_layer=-1, transfer_functions=TanSig):
+    def __init__(self, minimum, maximum, points, k, target, hidden_layer=-1, transfer_functions=TanSig()):
         """
         Initializes a classification network, which will be trained to classify the remote sensed data.
         :param minimum:             The minimum value of what the input will be.
         :param maximum:             The maximum value of what the input will be.
         :param points:              The points which will be used to train the network.
-        :param target:              The
+        :param k:                   The number of neighbors to each point.
+                                    If the point is by it self, it has k = 0 neighbors.
+        :param target:              The target for this neural network
         :param hidden_layer:        The number of hidden nodes in the hidden layer.
                                     If it is an integer, it will be interpreted as the number of hidden nodes.
                                     If it is a float, it will be interpreted as the ratio of nodes in the hidden layer
@@ -42,6 +44,8 @@ class ClassificationNet(object):
         :type minimum:              float
         :type maximum:              float
         :type points:               array
+        :type k:                    int
+        :type target:               str
         :type hidden_layer:         int | float
         :type transfer_functions:   Competitive | HardLim | HardLims | LogSig | PureLin | SatLin | SatLinPrm | SatLins
                                     | SoftMax | TanSig | list of [Competitive | HardLim | HardLims | LogSig | PureLin
@@ -56,15 +60,14 @@ class ClassificationNet(object):
         """ :type array """
         self.test_data = None
         """ :type array """
-        if isinstance(points[0], list):
-            self.k = len(points[0])
-            """ :type int """
-        else:
-            self.k = 0  # e.i. no neighbors
-            """ :type int """
+        self.target = target
+        """ :type str """
+        self.k = k
+        """ :type int """
         # Plus 1 because k does not include the point itself
         self.num_input_nodes = NUMBER_OF_USED_BANDS['AVIRIS'] * (self.k + 1)
         """ :type int """
+
         if isinstance(hidden_layer, int) and hidden_layer > 0:
             self.num_hidden_nodes = hidden_layer
             """ :type int """
@@ -72,10 +75,19 @@ class ClassificationNet(object):
             self.num_hidden_nodes = self.num_input_nodes * hidden_layer
             """ :type int """
         else:
-            self.num_hidden_nodes = self.num_input_nodes * HIDDEN_INPUT_RATIO
+            self.num_hidden_nodes = int(self.num_input_nodes * HIDDEN_INPUT_RATIO)
             """ :type int """
-        minmax = [minimum, maximum] * self.num_input_nodes
+        minmax = [[minimum, maximum]] * self.num_input_nodes
         size = [self.num_hidden_nodes, 1]
+
+        if not isinstance(transfer_functions, list):
+            # A single function is given
+            transfer_functions = [transfer_functions] * 2
+        elif len(transfer_functions) == 1:  # FIXME?
+            transfer_functions.extend([DEFAULT_TRANSFER_FUNCTION])
+        else:
+            raise TypeError("Too many transfer functions")
+
         self.net = nl.net.newff(minmax=minmax, size=size, transf=transfer_functions)
 
     def divide_dataset(self, test_fraction, validation_fraction=0):
@@ -99,5 +111,5 @@ class ClassificationNet(object):
         indices = indices.astype(int)
         self.validation_data = self.training_data[indices]
 
-    def train(self):
-        self.net.train()
+    def train(self, inp, tar, epoch, goal):
+        self.net.train(inp, tar, epoch=epoch, goal=goal)
