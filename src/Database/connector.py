@@ -631,6 +631,7 @@ def convert_points_to_numpy_array(points, background=False):
         band_matrix = [None] * len(points)
         for i in range(len(points)):
             neighbors = points[i]
+            itm = [flag]
             for point in neighbors:
                 itm.extend(point.bands)
             band_matrix[i] = np.array(itm)

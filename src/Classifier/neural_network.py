@@ -6,8 +6,8 @@ classifier.
 
 import neurolab as nl
 from neurolab.trans import TanSig
-from numpy.random import random_sample
-from numpy import setdiff1d, linspace
+from numpy.random import random_sample, shuffle
+from numpy import setdiff1d, arange
 
 from Common.parameters import NUMBER_OF_USED_BANDS, HIDDEN_INPUT_RATIO, DEFAULT_TRANSFER_FUNCTION
 
@@ -44,7 +44,7 @@ class ClassificationNet(object):
                                     second to the hidden layer, and the third to the output layer.
         :type minimum:              float
         :type maximum:              float
-        :type points:               array
+        :type points:               numpy.array
         :type k:                    int
         :type target:               str
         :type hidden_layer:         int | float
@@ -91,22 +91,27 @@ class ClassificationNet(object):
 
         self.net = nl.net.newff(minmax=minmax, size=size, transf=transfer_functions)
 
-        # separate_dataset()
-
-    def divide_dataset(self, test_fraction, validation_fraction=0):
+    def divide_dataset(self, test_fraction, validation_fraction=0, shuffle_dataset=True):
         """
         Divides the dataset into a test set, and a training set. In the training set, if validation_fraction is set
         to more than 0, then the training data will be subdivided into a training set, and a validation set.
         :param test_fraction:           The fraction of the dataset that will be set aside for testing the model
         :param validation_fraction:     The fraction of the training set that will be set aside for (cross) validation.
+        :param shuffle_dataset:                 Toggles whether or not the dataset is to be shuffled before divided.
+                                        Default is True.
         :type test_fraction:            float
         :type validation_fraction:      float
+        :type shuffle_dataset:                  bool
         :return:                        None
         :rtype:                         None
         """
         assert 0 < test_fraction < 1 and 0 <= validation_fraction < 1
+        if shuffle_dataset:
+            shuffle(self.dataset)
+
         n = len(self.dataset)
-        dataset_indices = linspace(0, n - 1, n).astype(int)
+        dataset_indices = arange(n)
+
         test_indices = random_sample(n * test_fraction) * n
         test_indices = test_indices.astype(int)
 
@@ -120,9 +125,11 @@ class ClassificationNet(object):
 
         self.validation_data = self.training_data[indices]
 
+        self.separate_dataset()
+
     def train(self, inp, tar, epoch, goal):
         self.net.train(inp, tar, epoch=epoch, goal=goal)
 
+    def separate_dataset(self):
 
-def separate_dataset(dataset):
-    pass
+        pass
