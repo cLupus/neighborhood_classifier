@@ -347,7 +347,6 @@ def add_wavelength_to_dataset(dataset, spectral_type, debug=False, commit_at_end
         # Wavelengths already exists, so we want to add the dataset to the wavelengths
         for wavelength in pny.select(wvl for wvl in Wavelengths if wvl.name == dataset.name):
             wavelength.datasets.add(dataset)
-            # TODO: Does this work at all?
     else:
         if debug:
             print("This is a new dataset for the database, generating wavelength information")
